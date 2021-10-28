@@ -1,0 +1,108 @@
+# INS: Instructions
+
+Put the instructions to operate your game here.  Leave a blank line
+between paragraphs and before and after heading lines.  If you want a
+bulleted or numbered list then start each line with an asterisk or a
+number.
+
+Main Menu
+
+*Press Select for practice mode and Down for story mode
+*The game will loop back to the Main menu when you finish a
+*Practice Run or when you fail in the story mode
+
+Practice Mode
+* Use left and right to adjust the size of M
+* Press Down to move on
+* Use left and right to change the length of the delay
+* Press Down to continue
+* Use left and right to change the size of N
+* Press Down to continue
+* Repeat the sequence shown on screen
+* If you enter them correctly, you'll see a success screen
+* If you fail, you'll see a failiure screen
+* Automatically loops back to the main menu
+
+Story Mode
+* Will display the level on the lcd screen
+* Will then display the sequence
+* If you fail, the game will return to the main menu
+* If you succeed, the cycle will repeat
+* Every 3rd level, the delay will decrease by 1 second and N increases by one
+
+
+# MFS: Features of the minimal feature set
+
+Indicate by deleting YES or NO to the questions below.
+If partially implemented, describe this by deleting *YES/NO* and
+writing what does work.  Do not adjust any other text in this section.
+
+* Sequences are displayed on the screen as specified: YES
+* Backlight flashes (only when correct): YES
+* Incorrect answer leads to game over: YES
+* Game supports *N* up to 10: YES
+* Game supports *M* of size 4: YES
+* A menu is present: YES
+* Size of *M* can be changed: YES
+* *N* can be changed: YES
+* Message when wrong printed: YES
+
+# OAF: Optional and additional features
+
+And these go here.
+
+
+* Story mode
+* Every third level in story mode, D will decrease by one second, and N will increase by 1
+* User gets points for correct answers on Story Mode
+* Can change value of D in Practice Mode
+* Backlight flashes Red for Game Over
+* Can handle sequences of N>10
+* Difficulty changing how quickly the game gets harder
+
+# TPL: Test plan
+
+And the test plan goes here.  Assume the code is booted and running.
+What buttons should be pushed and what should be observed.  Again you
+can use numbers or asterisks for a bulleted/numbered list.
+
+E.g.
+1. Program should display "SEL to Practice" and "DOWN for Story" on two lines
+2. Press SELECT
+* Message telling the user to use left and right to change the values
+* Should see a message on the Serial and LCD to tell the user to change the size of M (number of possible buttons)
+* Size of M can be changed using the left and right buttons
+* The size of M should be displayed on the screen and can only be 2,3 or 4
+* Press Down to move on to next screen
+* Should see a message telling the user to change the delay 
+* Use the left and right buttons to adjust the delay 
+* The delay cannot be less than one second
+* Press down to move on
+* Should see message to change size of N (length of the sequence)
+* Use left and right to change the size of N
+* Current value should be displayed on screen
+* Press down to continue
+* Prompt to repeat the sequence
+* Sequence should be displayed according to the values the user entered
+* "Correct" should appear each time the user enters the correct button
+* If the whole sequence is correct, "Success" should appear on the screen and the backlight will flash green
+* If a single incorrect button is pressed, "failiure" should appear on the screen and the backlight will flash red
+* After practice mode, the user will be taken back to the main menu
+* Previous values should be saved.
+
+3. Press DOWN
+* Prompt to change difficulty should appear on screen
+* Use left and right to change between "Easy", "Medium" and "Hard"
+* Current difficulty should appear on screen
+* Press Down to Move on
+* Current level should briefly appear on screen
+* Should then see a prompt the user to look at the sequence
+* Sequence will be displayed on Serial and lcd to make testing easier
+* In level 1, a maximum of two characters should be displayed to the user
+* Each key should appear on screen for 4 seconds before disappearing
+* If incorrect, then "failiure" should appear on screen. The backlight should flash red. Taken back to main menu
+* If the correct sequence is entered, should see "Success", the screen turning green, an update on the number of points and be moved onto the next level
+* For Easy, every fourth level, an additional button will become available and each button will be displayed for one less second
+* For Medium, this should happen every third level and every other level for Hard
+
+PLEASE do NOT change the lines that start with hashes.
