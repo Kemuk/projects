@@ -19,7 +19,7 @@ class Room:
         Args:
             room_id: Unique identifier for the room (e.g., "Room 1")
             size: Size of the room in square meters
-            desirability_score: Overall desirability score (0-10), calculated if None
+            desirability_score: Overall desirability score (0-5), calculated if None
             is_shared: Whether this room is shared among all housemates
         """
         self.room_id = room_id
@@ -34,99 +34,63 @@ class Room:
         self.shared_cost_portion = 0.0
         self.total_cost = 0.0
     
-    def calculate_desirability_factors(self, pub_proximity: str = 'medium') -> Dict[str, float]:
+    def calculate_desirability_factors(self) -> Dict[str, float]:
         """
         Calculate desirability factors for this room based on size, noise, kitchen and bathroom access.
         
-        Args:
-            pub_proximity: Ignored (kept for backward compatibility)
-            
         Returns:
             Dictionary of factor scores (out of 5)
         """
-        # Floor Level Score (higher = better for most people)
-        floor_scores = {
-            'Room 1': 3,  # Basement/Ground floor - less desirable
-            'Room 2': 7,  # 1st floor - convenient to kitchen
-            'Room 3': 8,  # 2nd floor - good height
-            'Room 4': 9,  # 2nd floor with balcony - very desirable
-            'Room 5': 6,  # 3rd floor - lots of stairs
-            'Room 6': 5   # 3rd floor - lots of stairs, smaller
+        # Size Score (1-5 scale)
+        size_scores = {
+            'Room 1': 5,  # Largest room by far
+            'Room 3': 4,  # Second largest
+            'Room 4': 3,  # Medium size
+            'Room 5': 3,  # Medium-small
+            'Room 6': 2.5   # Smallest room
         }
         
-        # Natural Light Score
-        light_scores = {
-            'Room 1': 4,  # Basement - limited natural light
-            'Room 2': 6,  # Ground level windows
-            'Room 3': 7,  # Good windows on 2nd floor
-            'Room 4': 10, # Balcony + large windows - excellent light
-            'Room 5': 8,  # Top floor - good light
-            'Room 6': 7   # Top floor but smaller windows
+        # Noise Level Score (1-5 scale, higher = quieter)
+        noise_scores = {
+            'Room 1': 2,  # Basement close to street
+            'Room 3': 4,  # 2nd floor, away from pub
+            'Room 4': 5,  # Balcony side, furthest from pub
+            'Room 5': 5,  # Top floor, furthest from pub
+            'Room 6': 5   # Top floor, away from pub
         }
         
-        # Noise Level (pub closes midnight, garden 10pm)
-        noise_penalties = {'close': -3, 'medium': -1, 'far': 0}
-        
-        # Privacy Score
-        privacy_scores = {
-            'Room 1': 9,  # Basement - very private
-            'Room 2': 4,  # Same floor as kitchen - less private
-            'Room 3': 7,  # Separate floor from kitchen
-            'Room 4': 8,  # Good separation + balcony
-            'Room 5': 8,  # Top floor - private
-            'Room 6': 7   # Top floor but near Room 5
+        # Kitchen Convenience Score (1-5 scale)
+        kitchen_scores = {
+            'Room 1': 4,  # Basement, but one floor
+            'Room 3': 4,  # One floor up, reasonable
+            'Room 4': 4,  # One floor up from kitchen
+            'Room 5': 3,  # Two floors up, lots of stairs
+            'Room 6': 3,   # Furthest from kitchen, most stairs
         }
         
-        # Convenience Score
-        convenience_scores = {
-            'Room 1': 3,  # Basement - far from kitchen, stairs
-            'Room 2': 10, # Same floor as kitchen - very convenient
-            'Room 3': 6,  # One floor up from kitchen
-            'Room 4': 6,  # One floor up from kitchen
-            'Room 5': 4,  # Two floors up - lots of stairs
-            'Room 6': 4   # Two floors up - lots of stairs
-        }
-        
-        # Special Features
-        special_features = {
-            'Room 1': 2,  # Basement ceiling, less desirable
-            'Room 2': 5,  # Standard room
-            'Room 3': 6,  # Standard room, good size
-            'Room 4': 7,  # Adjacent to communal balcony
-            'Room 5': 7,  # Top floor views
-            'Room 6': 4   # Smaller, but top floor
-        }
-        
-        # Balcony Access
-        balcony_access = {
-            'Room 1': 3,  # Basement - furthest from communal balcony
-            'Room 2': 4,  # Different floor from balcony
-            'Room 3': 6,  # Same floor as balcony but not adjacent
-            'Room 4': 9,  # Adjacent to communal balcony
-            'Room 5': 4,  # Different floor from balcony
-            'Room 6': 4   # Different floor from balcony
+        # Bathroom Convenience Score (1-5 scale)
+        bathroom_scores = {
+            'Room 1': 3,  # Own bathroom - no sharing/waiting, but basement location
+            'Room 3': 5,  # Main floor bathroom, most convenient location
+            'Room 4': 5,  # Main floor bathroom, most convenient location
+            'Room 5': 5,  # Top floor - less convenient when in main house areas
+            'Room 6': 5   # Top floor - less convenient when in main house areas
         }
         
         # Calculate individual factors
         factors = {
-            'floor_level': floor_scores.get(self.room_id, 5),
-            'natural_light': light_scores.get(self.room_id, 5),
-            'noise_level': 5 + noise_penalties.get(pub_proximity, -1),
-            'privacy': privacy_scores.get(self.room_id, 5),
-            'convenience': convenience_scores.get(self.room_id, 5),
-            'special_features': special_features.get(self.room_id, 5),
-            'balcony_access': balcony_access.get(self.room_id, 5)
+            'size': size_scores.get(self.room_id, 3),
+            'noise': noise_scores.get(self.room_id, 3),
+            'kitchen_convenience': kitchen_scores.get(self.room_id, 3),
+            'bathroom_convenience': bathroom_scores.get(self.room_id, 3)
         }
         
         # Calculate overall desirability score (weighted average)
         weights = {
-            'floor_level': 0.15,
-            'natural_light': 0.18,
-            'noise_level': 0.20,
-            'privacy': 0.15,
-            'convenience': 0.15,
-            'special_features': 0.12,
-            'balcony_access': 0.05
+            'size': 0.45,
+            'noise': 0.35,
+            'kitchen_convenience': 0.1,
+            'bathroom_convenience': 0.1
         }
         
         overall_score = sum(factors[factor] * weight for factor, weight in weights.items())
@@ -305,7 +269,7 @@ class House:
         for room in self.individual_rooms:
             desirability = room.desirability_score or 'N/A'
             print(f"{room.room_id}: {room.size} sqm")
-            print(f"  Desirability: {desirability}")
+            print(f"  Desirability: {desirability}/5")
             print(f"  Individual cost: £{room.individual_cost:.2f}")
             print(f"  Total cost: £{room.total_cost:.2f}")
     
@@ -318,21 +282,20 @@ class House:
             if not room.desirability_factors:
                 continue
                 
-            print(f"\n📍 {room.room_id} ({room.size} sqm) - Overall: {room.desirability_score}/10")
+            print(f"\n📍 {room.room_id} ({room.size} sqm) - Overall: {room.desirability_score}/5")
             print("-" * 50)
             
             factor_descriptions = {
-                'floor_level': 'Floor Level',
-                'natural_light': 'Natural Light',
-                'noise_level': 'Noise Level',
-                'kitchen_convenience': 'Kitchen Access',
-                'bathroom_convenience': 'Bathroom Access'
+                'size': 'Room Size',
+                'noise': 'Noise Level (Higher = Quieter)',
+                'kitchen_convenience': 'Kitchen Convenience',
+                'bathroom_convenience': 'Bathroom Convenience'
             }
             
             for factor, score in room.desirability_factors.items():
                 if factor != 'overall_desirability':
                     description = factor_descriptions.get(factor, factor)
-                    print(f"  {description:<25}: {score}/10")
+                    print(f"  {description:<30}: {score}/5")
     
     @classmethod
     def create_from_data(cls, 
