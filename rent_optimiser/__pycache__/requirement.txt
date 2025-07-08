@@ -1,0 +1,177 @@
+# requirements.txt
+streamlit>=1.28.0
+pandas>=2.0.0
+plotly>=5.15.0
+numpy>=1.24.0
+pytest>=7.0.0  # For running tests
+
+# Setup Instructions and Project Structure
+"""
+PROJECT STRUCTURE:
+your_project/
+├── main_streamlit.py          # Your Streamlit app (the artifact above)
+├── house.py                   # Improved House and Room classes
+├── base_optimizer.py          # Improved BaseOptimizer
+├── proportional_optimizers.py # Updated optimizers
+├── quadratic_optimizers.py    # Your quadratic optimizers (to be updated)
+├── requirements.txt           # Dependencies
+├── tests/                     # Test files
+│   ├── test_house.py
+│   ├── test_optimizers.py
+│   └── __init__.py
+└── README.md                  # Documentation
+
+SETUP INSTRUCTIONS:
+
+1. Install Dependencies:
+   pip install -r requirements.txt
+
+2. Run the Streamlit App:
+   streamlit run main_streamlit.py
+
+3. Access the App:
+   Open your browser to: http://localhost:8501
+
+4. For Development:
+   # Run tests
+   pytest tests/
+   
+   # Run with auto-reload during development
+   streamlit run main_streamlit.py --server.runOnSave true
+
+DEPLOYMENT OPTIONS:
+
+1. Streamlit Cloud (Free):
+   - Push to GitHub
+   - Connect at share.streamlit.io
+   - Deploy directly from repo
+
+2. Local Network Sharing:
+   streamlit run main_streamlit.py --server.address 0.0.0.0 --server.port 8501
+   # Then share your IP:8501 with housemates
+
+3. Heroku/Railway/Other hosting:
+   - Add Procfile: web: streamlit run main_streamlit.py --server.port $PORT --server.address 0.0.0.0
+   - Deploy as web app
+
+USAGE TIPS:
+
+1. Load Sample Data:
+   - Click "Load Sample House" to see your actual house data
+   - Modify as needed for current situation
+
+2. Try Different Methods:
+   - Start with "Proportional by Size" 
+   - Experiment with "Size + Desirability" adjustments
+   - Compare methods using the comparison tab
+
+3. Share with Housemates:
+   - Use the export features to share results
+   - Screenshot the charts for discussions
+   - Save configurations for different scenarios
+
+CUSTOMIZATION:
+
+1. Add Your Own Optimization Methods:
+   - Create new optimizer class inheriting from BaseOptimizer
+   - Add to get_available_optimizers() function
+   - Update create_optimizer_from_streamlit_form()
+
+2. Modify Desirability Factors:
+   - Edit DesirabilityFactors class in house.py
+   - Add new factors relevant to your house
+   - Update the sidebar inputs accordingly
+
+3. Change Styling:
+   - Modify the CSS in the st.markdown() sections
+   - Adjust colors, fonts, layout as needed
+   - Add your house logo/branding
+"""
+
+# Example .streamlit/config.toml (optional customization)
+"""
+[theme]
+primaryColor = "#2E86AB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"
+
+[server]
+maxUploadSize = 200
+maxMessageSize = 200
+enableCORS = false
+enableXsrfProtection = true
+"""
+
+# Example README.md content
+readme_content = """
+# 🏠 Fair Rent Calculator
+
+A Streamlit web application to help housemates determine fair rent allocation using multiple optimization methods.
+
+## Features
+
+- **Multiple Allocation Methods**: Proportional, desirability-weighted, equal payment, and floor-adjusted
+- **Interactive Configuration**: Easy-to-use interface for setting up your house
+- **Visual Analysis**: Charts and metrics to understand the allocation
+- **Method Comparison**: Compare different approaches side-by-side
+- **Export Options**: Save results as CSV or shareable summaries
+
+## Quick Start
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Run the app:
+   ```bash
+   streamlit run main_streamlit.py
+   ```
+
+3. Open your browser to `http://localhost:8501`
+
+## How to Use
+
+1. **Configure Your House**: Use the sidebar to input room details, sizes, and desirability factors
+2. **Choose Method**: Select an optimization method and adjust parameters
+3. **View Results**: See the rent allocation with fairness metrics and visualizations
+4. **Compare Methods**: Use the comparison tab to evaluate different approaches
+5. **Export**: Save or share your results
+
+## Methods Explained
+
+- **Proportional by Size**: Larger rooms pay proportionally more (baseline method)
+- **Size + Desirability**: Adjusts for room quality factors (noise, balcony, etc.)
+- **Equal Payment**: Everyone pays exactly the same amount
+- **Floor Level Adjusted**: Higher floors typically pay less due to noise/view differences
+
+## Fairness Metrics
+
+- **Fairness Score (0-100)**: Higher = more fair allocation
+- **Standard Deviation**: How much costs vary between rooms
+- **Gini Coefficient**: Measure of inequality (0 = perfect equality)
+
+## Contributing
+
+Feel free to suggest improvements or add new optimization methods!
+
+## License
+
+MIT License - feel free to use and modify for your house!
+"""
+
+# Example Procfile for deployment
+procfile_content = """
+web: streamlit run main_streamlit.py --server.port $PORT --server.address 0.0.0.0
+"""
+
+print("Setup files created!")
+print("\nNext steps:")
+print("1. Save the main Streamlit app as 'main_streamlit.py'")
+print("2. Create requirements.txt with the dependencies listed above")
+print("3. Make sure you have the improved house.py and optimizer files")
+print("4. Run: pip install -r requirements.txt")
+print("5. Run: streamlit run main_streamlit.py")
+print("6. Open http://localhost:8501 in your browser")
