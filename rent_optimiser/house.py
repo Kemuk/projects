@@ -801,3 +801,46 @@ class House:
             proportional_allocation[room_id] = total_cost
         
         return proportional_allocation
+    
+    def get_constrained_spread_mapping(self) -> Tuple[float, float]:
+        """
+        Get the actual spread range that 0-100% slider should map to.
+        
+        Returns:
+            Tuple of (min_actual_spread, max_actual_spread)
+        """
+        # If no constraints, use full range
+        if not self.get_active_constraints():
+            return 0.0, 100.0
+        
+        # If constraints exist, use feasible range
+        min_feasible, max_feasible, _ = self.get_feasible_spread_range()
+        
+        # If no feasible solution, fall back to full range
+        if min_feasible is None or max_feasible is None:
+            return 0.0, 100.0
+        
+        return min_feasible, max_feasible
+
+    def slider_to_actual_spread(self, slider_percent: float) -> float:
+        """Convert slider position (0-100%) to actual spread percentage."""
+        min_actual, max_actual = self.get_constrained_spread_mapping()
+        
+        # Map slider 0-100% to actual min_actual-max_actual range
+        slider_percent = max(0.0, min(100.0, slider_percent))
+        actual_range = max_actual - min_actual
+        
+        return min_actual + (slider_percent / 100.0) * actual_range
+
+    def actual_spread_to_slider(self, actual_spread: float) -> float:
+        """Convert actual spread percentage to slider position (0-100%)."""
+        min_actual, max_actual = self.get_constrained_spread_mapping()
+        
+        # Map actual spread to 0-100% slider range
+        actual_spread = max(min_actual, min(max_actual, actual_spread))
+        actual_range = max_actual - min_actual
+        
+        if actual_range == 0:
+            return 0.0
+        
+        return ((actual_spread - min_actual) / actual_range) * 100.0

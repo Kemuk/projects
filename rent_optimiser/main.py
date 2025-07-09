@@ -115,6 +115,32 @@ def create_fallback_house() -> House:
     except Exception as e:
         st.error(f"Critical error creating house: {e}")
         return None
+    
+def render_clean_slider(house: House) -> float:
+    """
+    Render clean slider that automatically handles constraints invisibly.
+    
+    Returns:
+        Selected spread percentage (actual, not slider position)
+    """
+    # Convert current actual spread to slider position
+    current_actual = st.session_state.spread_percent
+    current_slider = house.actual_spread_to_slider(current_actual)
+    
+    # Clean slider (always 0-100%)
+    slider_percent = st.slider(
+        "Rent Spread",
+        min_value=0.0,
+        max_value=100.0,
+        value=current_slider,
+        step=1.0,
+        help="0% = Everyone pays the same | 100% = Maximum difference possible"
+    )
+    
+    # Convert slider position to actual spread
+    actual_spread = house.slider_to_actual_spread(slider_percent)
+    
+    return actual_spread
 
 def render_constraint_panel(house: House) -> bool:
     """
@@ -271,6 +297,7 @@ def render_feasible_slider(house: House) -> float:
             st.success(f"✅ Current selection ({spread_percent:.0f}%) satisfies all constraints")
     
     return spread_percent
+
 
 def get_spread_description(spread_percent: float, house: House) -> str:
     """Get user-friendly description of the current spread setting."""
@@ -489,7 +516,7 @@ def render_calculate_rent_tab(house: House):
     # Feasible slider with constraint awareness
     st.subheader("🎛️ How much should room differences matter?")
     
-    spread_percent = render_feasible_slider(house)
+    spread_percent = render_clean_slider(house)
     
     # Update session state
     st.session_state.spread_percent = spread_percent
