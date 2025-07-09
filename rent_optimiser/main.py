@@ -84,7 +84,7 @@ def initialize_session_state():
             st.error(f"Error creating house: {e}")
             st.session_state.house = create_fallback_house()
     if 'spread_percent' not in st.session_state:
-        st.session_state.spread_percent = 100.0
+        st.session_state.spread_percent = 50.0
     if 'optimization_results' not in st.session_state:
         st.session_state.optimization_results = []
 
@@ -130,6 +130,7 @@ def render_clean_slider(house: House) -> float:
     current_slider = house.actual_spread_to_slider(current_actual)
     
     # Clean slider (always 0-100%)
+    #st.sidebar.subheader(" Shared Living Space")
     slider_percent = st.sidebar.slider(
         "Rent Spread",
         min_value=0.0,
@@ -261,6 +262,7 @@ def render_sidebar() -> House:
     
     # House configuration
     st.sidebar.header("🏠 House Configuration")
+
 
     
     # Quick load defaults
@@ -417,9 +419,7 @@ def render_sidebar() -> House:
                 st.sidebar.success("✅ Settings updated!")
                 st.rerun()
 
-    st.sidebar.subheader("⚖️ Configure Individual Rooms")
-
-    spread_percent = render_clean_slider(st.session_state.house)
+        spread_percent = render_clean_slider(st.session_state.house)
 
     st.sidebar.markdown("---")
     
@@ -468,6 +468,26 @@ def render_calculate_rent_tab(house: House):
  
     # Retrieve session state = 
     spread_percent = st.session_state.spread_percent
+    
+    # Show practical lambda range info
+    practical_lambda = house.get_practical_lambda_range()
+    current_lambda = house.spread_to_lambda_for_house(spread_percent)
+    
+    with st.expander("ℹ️ Technical Details", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current λ", f"{current_lambda:.2f}")
+        with col2:
+            st.metric("Max Effective λ", f"{practical_lambda:.2f}")
+        with col3:
+            efficiency = (current_lambda / practical_lambda) * 100 if practical_lambda > 0 else 0
+            st.metric("Range Efficiency", f"{efficiency:.0f}%")
+        
+        st.caption(f"This house's practical lambda range is 0 to {practical_lambda:.2f}. "
+                   f"Beyond {practical_lambda:.2f}, changes in rent allocation become negligible (< £1 per room).")
+    
+
+    st.markdown("---")
     
     # Run optimization
     result = run_optimization(house, spread_percent)
@@ -544,26 +564,6 @@ def render_calculate_rent_tab(house: House):
     
     else:
         st.error("Unable to calculate results. Please check your settings.")
-    
-    # Show practical lambda range info
-    practical_lambda = house.get_practical_lambda_range()
-    current_lambda = house.spread_to_lambda_for_house(spread_percent)
-    
-    with st.expander("ℹ️ Technical Details", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Current λ", f"{current_lambda:.2f}")
-        with col2:
-            st.metric("Max Effective λ", f"{practical_lambda:.2f}")
-        with col3:
-            efficiency = (current_lambda / practical_lambda) * 100 if practical_lambda > 0 else 0
-            st.metric("Range Efficiency", f"{efficiency:.0f}%")
-        
-        st.caption(f"This house's practical lambda range is 0 to {practical_lambda:.2f}. "
-                   f"Beyond {practical_lambda:.2f}, changes in rent allocation become negligible (< £1 per room).")
-    
-
-    st.markdown("---")
 
 def render_compare_methods_tab(house: House):
     """Render the Compare Methods tab with custom range builder."""
@@ -642,18 +642,9 @@ def render_room_details_tab(house: House):
     
     # Explanation
     st.markdown("---")
-    st.subheader("🤔 How Room Scoring Works")
-    
-    st.markdown("""
-    <div class="explanation-box">
-    <strong>Room Quality Calculation:</strong><br>
-    • <strong>Spaciousness (50% weight):</strong> How big the room feels<br>
-    • <strong>Quietness (40% weight):</strong> How peaceful the room is<br>
-    • <strong>Accessibility (10% weight):</strong> How convenient to kitchen/bathroom<br><br>
-    <strong>Room Value = Size × Quality Score</strong><br>
-    This room value is used to determine proportional rent allocation.
-    </div>
-    """, unsafe_allow_html=True)
+
+
+
 
 def render_export_modal():
     """Render export options."""
@@ -782,7 +773,7 @@ def main():
         st.stop()
     
     # Main content tabs
-    tab1, tab2, tab3 = st.tabs(["💰 Overall Summary", "🏠 Room Breakdown", "🔍Methodology"])
+    tab1, tab2, tab3 = st.tabs(["💰 Calculate Rent", "🏠 Room Details", "🔍Methodology"])
  
     with tab1:
         render_calculate_rent_tab(house)
