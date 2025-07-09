@@ -127,7 +127,7 @@ def render_sidebar() -> House:
         min_value=0.0,
         max_value=10.0,
         value=st.session_state.lambda_param,
-        step=0.5,
+        step=0.05,
         help="Left: Everyone pays the same amount | Right: Rent proportional to room value"
     )
     
@@ -205,9 +205,9 @@ def render_sidebar() -> House:
         
         with col1:
             size_score = st.select_slider(
-                "Feel",
-                options=[1, 2, 3, 4, 5],
-                value=int(room.desirability_factors.size_score),
+                "Size",
+                options=np.arange(0, 5.5, 0.5) ,
+                value=room.desirability_factors.size_score,
                 key=f"feel_{i}",
                 help="How spacious does this room feel? (50% weight)"
             )
@@ -215,7 +215,7 @@ def render_sidebar() -> House:
         with col2:
             noise_level = st.select_slider(
                 "Quiet",
-                options=[1, 2, 3, 4, 5],
+                options=np.arange(0, 5.5, 0.5) ,
                 value=int(room.desirability_factors.noise_level),
                 key=f"quiet_{i}",
                 help="How quiet is this room? (40% weight)"
@@ -223,8 +223,8 @@ def render_sidebar() -> House:
         
         with col3:
             accessibility = st.select_slider(
-                "Access",
-                options=[1, 2, 3, 4, 5],
+                "Accessibility",
+                options=np.arange(0, 5.5, 0.5) ,
                 value=int(room.desirability_factors.accessibility),
                 key=f"access_{i}",
                 help="How convenient to kitchen/bathroom? (10% weight)"
@@ -320,7 +320,7 @@ def render_results(house: House, result: OptimizationResult):
     # Key metrics row
     st.subheader("💰 Rent Allocation Results")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5, col6, col7= st.columns(7)
     
     with col1:
         st.metric(
@@ -333,7 +333,7 @@ def render_results(house: House, result: OptimizationResult):
         st.metric(
             "Average per Person",
             f"£{house.target_mean:.0f}",
-            help="Equal split amount for comparison"
+            help="Average Rent"
         )
     
     with col3:
@@ -352,7 +352,17 @@ def render_results(house: House, result: OptimizationResult):
             f"±£{std_dev:.0f}",
             help=f"Standard deviation of rents. Gini coefficient: {gini:.3f} (0=perfect equality, 1=maximum inequality)"
         )
+    with col5:
+        if house.shared_room:
+            st.metric("Shared Cost/Person", f"£{house.shared_cost_per_person:.0f}")
     
+    with col6:
+        st.metric("People", house.num_people)
+
+    with col7:
+        st.metric("Balance Factor (λ)", st.session_state.lambda_param)
+        
+
     # Results table
     st.subheader("📊 Individual Rent Breakdown")
     
@@ -643,52 +653,7 @@ def main():
             
             with tab4:
                 render_methodology()
-    
-    with col2:
-        # House summary
-        st.subheader("🏠 Current Setup")
-        
-        st.metric("Total Rent", f"£{house.total_rent:,.0f}")
-        st.metric("People", house.num_people)
-        
-        # Lambda description
-        lambda_val = st.session_state.lambda_param
-        if lambda_val == 0:
-            lambda_desc = "Equal Cost"
-        elif lambda_val >= 9.5:
-            lambda_desc = "Cost per sqm"
-        else:
-            lambda_desc = f"{(lambda_val/10)*100:.0f}% proportional"
-        st.metric("Balance Setting", lambda_desc)
-        
-        if house.shared_room:
-            st.metric("Shared Cost/Person", f"£{house.shared_cost_per_person:.0f}")
-        
-        st.markdown("**Room Overview:**")
-        for room in house.individual_rooms:
-            st.write(f"• **{room.room_id}**: {room.size:.1f}m² (Score: {room.desirability_score:.1f}/5)")
-        
-        # Quick recommendations based on current analysis
-        if 'comparison_results' in st.session_state:
-            st.markdown("---")
-            st.subheader("💡 Quick Tips")
-            recommendations = st.session_state.comparison_results.get_recommendations()
-            for tip, value in recommendations.items():
-                st.caption(f"**{tip}**: {value}")
-    
-    # Tabs for methodology only
-    st.markdown("---")
-    
-    tab1, tab2 = st.tabs(["ℹ️ Methodology", "📊 Detailed Analysis"])
-    
-    with tab1:
-        render_methodology()
-    
-    with tab2:
-        if 'comparison_results' in st.session_state:
-            st.session_state.comparison_results.render_comparison_charts()
-        else:
-            st.info("Detailed analysis will appear here after running optimization.")
+
 
 
 def render_export_modal():
@@ -789,7 +754,7 @@ def render_export_modal():
                                 
                                 st.success("✅ Package includes:")
                                 st.markdown("""
-                                - `detailed_results.csv` - All balance settings & room costs
+                                - `detailed_results.csv` - All Balance Factors & room costs
                                 - `fairness_metrics.csv` - Fairness analysis across settings  
                                 - `cost_summary.csv` - Cost comparison table
                                 - Interactive charts as HTML files

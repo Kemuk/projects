@@ -96,7 +96,7 @@ class OptimizationComparison:
     def render_fairness_tab(self):
         """Render fairness analysis tab with metrics and charts."""
         st.markdown("### 📊 Fairness Metrics Analysis")
-        st.markdown("*Compare fairness across different balance settings*")
+        st.markdown("*Compare fairness across different Balance Factors*")
         
         if self.fairness_df is None:
             st.warning("Run comparison first")
@@ -118,8 +118,8 @@ class OptimizationComparison:
                 self.fairness_df,
                 x='Lambda',
                 y='Range_Max_Min',
-                title='Range vs Balance Setting',
-                labels={'Range_Max_Min': 'Range (£)', 'Lambda': 'Balance Setting'},
+                title='Range vs Balance Factor',
+                labels={'Range_Max_Min': 'Range (£)', 'Lambda': 'Balance Factor'},
                 color='Range_Max_Min',
                 color_continuous_scale='Reds'
             )
@@ -133,8 +133,8 @@ class OptimizationComparison:
                 self.fairness_df,
                 x='Lambda',
                 y='Gini_Coefficient',
-                title='Gini Coefficient vs Balance Setting',
-                labels={'Gini_Coefficient': 'Gini Coefficient', 'Lambda': 'Balance Setting'},
+                title='Gini Coefficient vs Balance Factor',
+                labels={'Gini_Coefficient': 'Gini Coefficient', 'Lambda': 'Balance Factor'},
                 color='Gini_Coefficient',
                 color_continuous_scale='Blues'
             )
@@ -147,9 +147,9 @@ class OptimizationComparison:
             self.fairness_df,
             x='Lambda',
             y='Standard_Deviation',
-            title='Standard Deviation vs Balance Setting',
+            title='Standard Deviation vs Balance Factor',
             markers=True,
-            labels={'Standard_Deviation': 'Standard Deviation (£)', 'Lambda': 'Balance Setting'}
+            labels={'Standard_Deviation': 'Standard Deviation (£)', 'Lambda': 'Balance Factor'}
         )
         st.plotly_chart(fig_std, use_container_width=True)
         self.current_charts['fairness_std'] = fig_std
@@ -174,7 +174,7 @@ class OptimizationComparison:
     def render_summary_tab(self):
         """Render cost summary tab with allocation table and charts."""
         st.markdown("### 📋 Cost Allocation Summary")
-        st.markdown("*Compare room costs across different balance settings*")
+        st.markdown("*Compare room costs across different Balance Factors*")
         
         if self.comparison_df is None:
             st.warning("Run comparison first")
@@ -245,7 +245,7 @@ class OptimizationComparison:
             self.current_charts['summary_per_sqm'] = fig_per_sqm
         
         # Range comparison across lambda values
-        st.subheader("📈 How Costs Change with Balance Setting")
+        st.subheader("📈 How Costs Change with Balance Factor")
         
         # Line chart showing cost changes
         fig_trends = px.line(
@@ -253,8 +253,8 @@ class OptimizationComparison:
             x='Lambda',
             y='Total_Cost',
             color='Room',
-            title='Room Costs vs Balance Setting',
-            labels={'Total_Cost': 'Monthly Rent (£)', 'Lambda': 'Balance Setting'},
+            title='Room Costs vs Balance Factor',
+            labels={'Total_Cost': 'Monthly Rent (£)', 'Lambda': 'Balance Factor'},
             markers=True
         )
         

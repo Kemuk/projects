@@ -244,36 +244,36 @@ class House:
                 'id': 'Room 1',
                 'size': 30.22,
                 'size_score': 5.0,    # Largest room
-                'noise_level': 2.0,   # Close to pub (you can adjust)
-                'accessibility': 4.0  # Basement but close to kitchen (you can adjust)
+                'noise_level': 2.5,   # Close to pub (you can adjust)
+                'accessibility': 3  # Basement but close to kitchen 
             },
             {
                 'id': 'Room 3', 
                 'size': 19.16,
                 'size_score': 4.0,    # Second largest
                 'noise_level': 4.0,   # Moderate noise
-                'accessibility': 3.0  # Medium accessibility
+                'accessibility': 4.5  # Medium accessibility
             },
             {
                 'id': 'Room 4',
                 'size': 16.04,
-                'size_score': 3.0,    # Medium size
-                'noise_level': 5.0,   # Quietest (balcony side)
-                'accessibility': 3.0  # Medium accessibility
+                'size_score': 3.5,    # Medium size
+                'noise_level': 4.0,   # Quietest (balcony side)
+                'accessibility': 4.5  # Medium accessibility
             },
             {
                 'id': 'Room 5',
                 'size': 15.66,
-                'size_score': 3.0,    # Medium-small
-                'noise_level': 5.0,   # Top floor, quiet
-                'accessibility': 2.0  # Lots of stairs
+                'size_score': 3.5,    # Medium-small
+                'noise_level': 4.5,   # Top floor, quiet
+                'accessibility': 3.5  # Lots of stairs
             },
             {
                 'id': 'Room 6',
                 'size': 11.10,
-                'size_score': 2.0,    # Smallest
-                'noise_level': 5.0,   # Top floor, quiet
-                'accessibility': 1.0  # Most stairs, furthest
+                'size_score': 2.5,    # Smallest
+                'noise_level': 4.5,   # Top floor, quiet
+                'accessibility': 3.5  # Most stairs, furthest
             }
         ]
         
