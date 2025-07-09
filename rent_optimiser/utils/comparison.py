@@ -7,6 +7,7 @@ import numpy as np
 from typing import List, Dict, Optional, Tuple
 import zipfile
 import io
+import json
 from optimizers.quadratic_optimizer import QuadraticOptimizer
 from optimizers.base_optimizer import OptimizationResult
 
@@ -71,7 +72,7 @@ class OptimizationComparison:
         comparison_data = []
         
         for spread_percent in spread_percentages:
-            optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
+            optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent, self.house)
             result = optimizer.get_optimization_result(self.house)
             
             for room in self.house.individual_rooms:
@@ -79,6 +80,7 @@ class OptimizationComparison:
                 comparison_data.append({
                     'Spread': f"{spread_percent:.0f}%",
                     'Spread_Value': spread_percent,
+                    'Lambda': self.house.spread_to_lambda_for_house(spread_percent),
                     'Room': room.room_id,
                     'Cost': cost,
                     'Size': room.size,
@@ -367,7 +369,7 @@ class OptimizationComparison:
         # Convert lambda to spread percentage for display
         fairness_display = self.fairness_df.copy()
         fairness_display['Spread'] = fairness_display['Lambda'].apply(
-            lambda x: f"{QuadraticOptimizer.lambda_to_spread(x):.0f}%"
+            lambda x: f"{self.house.lambda_to_spread_for_house(x):.0f}%"
         )
         
         # Fairness metrics table
@@ -424,7 +426,7 @@ class OptimizationComparison:
         
         # Current setting indicator
         current_spread = st.session_state.get('spread_percent', 50.0)
-        current_lambda = QuadraticOptimizer.spread_to_lambda(current_spread)
+        current_lambda = self.house.spread_to_lambda_for_house(current_spread)
         
         # Find closest lambda value in comparison data
         lambda_values = self.fairness_df['Lambda'].values
@@ -432,7 +434,7 @@ class OptimizationComparison:
         current_metrics = self.fairness_df[self.fairness_df['Lambda'] == closest_lambda]
         
         if not current_metrics.empty:
-            closest_spread = QuadraticOptimizer.lambda_to_spread(closest_lambda)
+            closest_spread = self.house.lambda_to_spread_for_house(closest_lambda)
             if abs(current_spread - closest_spread) > 1:
                 st.info(f"**Current Setting ({current_spread:.0f}%, approximated from {closest_spread:.0f}%)**: "
                        f"Range: £{current_metrics['Range_Max_Min'].iloc[0]:.0f}, "
@@ -454,7 +456,7 @@ class OptimizationComparison:
         # Convert lambda to spread percentage for display
         summary_display = self.comparison_df.copy()
         summary_display['Spread'] = summary_display['Lambda'].apply(
-            lambda x: f"{QuadraticOptimizer.lambda_to_spread(x):.0f}%"
+            lambda x: f"{self.house.lambda_to_spread_for_house(x):.0f}%"
         )
         
         # Create cost summary pivot table
@@ -478,14 +480,14 @@ class OptimizationComparison:
         with col1:
             # Current spread costs
             current_spread = st.session_state.get('spread_percent', 50.0)
-            current_lambda = QuadraticOptimizer.spread_to_lambda(current_spread)
+            current_lambda = self.house.spread_to_lambda_for_house(current_spread)
             
             # Find closest lambda value in comparison data
             lambda_values = summary_display['Lambda'].unique()
             closest_lambda = lambda_values[np.argmin(np.abs(lambda_values - current_lambda))]
             current_data = summary_display[summary_display['Lambda'] == closest_lambda]
             
-            closest_spread = QuadraticOptimizer.lambda_to_spread(closest_lambda)
+            closest_spread = self.house.lambda_to_spread_for_house(closest_lambda)
             title_suffix = f" ({current_spread:.0f}%)" if abs(current_spread - closest_spread) <= 1 else f" (≈{closest_spread:.0f}%)"
             
             fig_current = px.bar(
@@ -600,7 +602,7 @@ class OptimizationComparison:
         return pd.concat([room_metadata, cost_pivot], axis=1)
     
     def create_export_package(self) -> bytes:
-        """Create a zip package with all export data."""
+        """Create a zip package with all export data including PNG charts and detailed CSVs."""
         export_data = self.get_all_export_data()
         
         if not export_data:
@@ -610,7 +612,7 @@ class OptimizationComparison:
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Add CSV files
+            # Add detailed CSV files
             if 'detailed_csv' in export_data:
                 csv_data = export_data['detailed_csv'].to_csv(index=False)
                 zip_file.writestr('detailed_results.csv', csv_data)
@@ -627,14 +629,160 @@ class OptimizationComparison:
                 csv_data = export_data['custom_range_csv'].to_csv(index=False)
                 zip_file.writestr('custom_range_comparison.csv', csv_data)
             
-            # Add charts as HTML files
+            # Create comprehensive detailed CSV
+            detailed_export_csv = self._create_comprehensive_csv()
+            if detailed_export_csv is not None:
+                zip_file.writestr('comprehensive_analysis.csv', detailed_export_csv)
+            
+            # Add charts as PNG files
             charts = export_data.get('charts', {})
             for chart_name, fig in charts.items():
-                html_content = pio.to_html(fig, include_plotlyjs='cdn')
-                zip_file.writestr(f'{chart_name}_chart.html', html_content)
+                try:
+                    # Export as PNG
+                    img_bytes = pio.to_image(fig, format='png', width=1200, height=800, scale=2)
+                    zip_file.writestr(f'{chart_name}_chart.png', img_bytes)
+                    
+                    # Also export as HTML for interactivity
+                    html_content = pio.to_html(fig, include_plotlyjs='cdn')
+                    zip_file.writestr(f'{chart_name}_chart.html', html_content)
+                except Exception as e:
+                    # If PNG export fails, fall back to HTML only
+                    html_content = pio.to_html(fig, include_plotlyjs='cdn')
+                    zip_file.writestr(f'{chart_name}_chart.html', html_content)
+            
+            # Add house configuration
+            house_config = self._create_house_config_export()
+            zip_file.writestr('house_configuration.json', house_config)
+            
+            # Add analysis summary
+            analysis_summary = self._create_analysis_summary()
+            zip_file.writestr('analysis_summary.txt', analysis_summary)
         
         zip_buffer.seek(0)
         return zip_buffer.getvalue()
+    
+    def _create_comprehensive_csv(self) -> Optional[str]:
+        """Create a comprehensive CSV with all analysis data."""
+        if self.comparison_df is None:
+            return None
+        
+        # Create detailed analysis data
+        comprehensive_data = []
+        
+        # Get practical lambda range
+        practical_lambda = self.house.get_practical_lambda_range()
+        
+        for _, row in self.comparison_df.iterrows():
+            lambda_val = row['Lambda']
+            spread_percent = self.house.lambda_to_spread_for_house(lambda_val)
+            
+            # Add comprehensive row data
+            comprehensive_data.append({
+                'Method': f"Quadratic Optimization",
+                'Lambda': lambda_val,
+                'Spread_Percent': spread_percent,
+                'Spread_Description': self._get_spread_description_for_export(spread_percent),
+                'Room_ID': row['Room'],
+                'Room_Size_sqm': row['Size_sqm'],
+                'Room_Desirability_Score': row['Desirability'],
+                'Room_Size_Score': self.house.get_room_by_id(row['Room']).desirability_factors.size_score,
+                'Room_Noise_Level': self.house.get_room_by_id(row['Room']).desirability_factors.noise_level,
+                'Room_Accessibility': self.house.get_room_by_id(row['Room']).desirability_factors.accessibility,
+                'Individual_Cost': row['Individual_Cost'],
+                'Shared_Cost_Portion': row['Shared_Cost'],
+                'Total_Monthly_Cost': row['Total_Cost'],
+                'Cost_per_sqm': row['Cost_per_sqm'],
+                'Deviation_from_Mean': row['Deviation_from_Mean'],
+                'House_Total_Rent': self.house.total_rent,
+                'House_Average_Rent': self.house.target_mean,
+                'House_Shared_Cost_per_Person': self.house.shared_cost_per_person,
+                'House_Practical_Max_Lambda': practical_lambda,
+                'Efficiency_Percent': (lambda_val / practical_lambda * 100) if practical_lambda > 0 else 0
+            })
+        
+        # Add fairness metrics for each lambda
+        if self.fairness_df is not None:
+            fairness_lookup = self.fairness_df.set_index('Lambda').to_dict('index')
+            
+            for row in comprehensive_data:
+                lambda_val = row['Lambda']
+                if lambda_val in fairness_lookup:
+                    fairness_data = fairness_lookup[lambda_val]
+                    row.update({
+                        'Range_Max_Min': fairness_data.get('Range_Max_Min', 0),
+                        'Standard_Deviation': fairness_data.get('Standard_Deviation', 0),
+                        'Gini_Coefficient': fairness_data.get('Gini_Coefficient', 0),
+                        'Fairness_Score': fairness_data.get('Fairness_Score', 0),
+                        'Coefficient_of_Variation': fairness_data.get('Coefficient_of_Variation', 0)
+                    })
+        
+        df_comprehensive = pd.DataFrame(comprehensive_data)
+        return df_comprehensive.to_csv(index=False)
+    
+    def _get_spread_description_for_export(self, spread_percent: float) -> str:
+        """Get spread description for export."""
+        if spread_percent <= 5:
+            return "Equal Split - Everyone pays same"
+        elif spread_percent >= 95:
+            return "Proportional - Rent based on room value"
+        else:
+            return f"Balanced - {spread_percent:.0f}% towards proportional"
+    
+    def _create_house_config_export(self) -> str:
+        """Create house configuration export."""
+        house_data = {
+            'house_summary': self.house.get_house_summary(),
+            'room_details': self.house.get_room_summary_data(),
+            'practical_lambda_range': self.house.get_practical_lambda_range(),
+            'cost_edge_cases': self.house.get_cost_edge_cases(),
+            'analysis_timestamp': pd.Timestamp.now().isoformat()
+        }
+        return json.dumps(house_data, indent=2)
+    
+    def _create_analysis_summary(self) -> str:
+        """Create analysis summary text file."""
+        practical_lambda = self.house.get_practical_lambda_range()
+        
+        summary = f"""Rent Optimization Analysis Summary
+=====================================
+
+House Configuration:
+- Total Rent: £{self.house.total_rent:,.2f}
+- Number of People: {self.house.num_people}
+- Shared Room Size: {self.house.shared_room.size:.1f} sqm
+- Total Area: {self.house.total_area:.1f} sqm
+- Average Rent: £{self.house.target_mean:.2f}
+
+Practical Lambda Range: 0 to {practical_lambda:.2f}
+- This means spread percentages above {(practical_lambda/practical_lambda)*100:.0f}% have minimal effect
+- The slider effectively uses the full 0-100% range with meaningful changes
+
+Room Summary:
+"""
+        
+        for room in self.house.individual_rooms:
+            summary += f"""
+{room.room_id}:
+  - Size: {room.size:.1f} sqm
+  - Desirability: {room.desirability_score:.1f}/5
+  - Size Score: {room.desirability_factors.size_score}/5
+  - Noise Level: {room.desirability_factors.noise_level}/5  
+  - Accessibility: {room.desirability_factors.accessibility}/5
+"""
+        
+        if self.fairness_df is not None:
+            best_gini_idx = self.fairness_df['Gini_Coefficient'].idxmin()
+            best_range_idx = self.fairness_df['Range_Max_Min'].idxmin()
+            
+            summary += f"""
+Recommendations:
+- Most Equal Distribution: {self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_gini_idx, 'Lambda']):.0f}% spread
+- Smallest Cost Range: {self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_range_idx, 'Lambda']):.0f}% spread
+
+Analysis completed: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
+"""
+        
+        return summary
     
     def get_recommendations(self) -> Dict[str, str]:
         """Get recommendations based on fairness metrics."""
@@ -649,9 +797,9 @@ class OptimizationComparison:
         best_std_idx = self.fairness_df['Standard_Deviation'].idxmin()
         
         # Convert to spread percentages
-        best_gini_spread = QuadraticOptimizer.lambda_to_spread(self.fairness_df.loc[best_gini_idx, 'Lambda'])
-        best_range_spread = QuadraticOptimizer.lambda_to_spread(self.fairness_df.loc[best_range_idx, 'Lambda'])
-        best_std_spread = QuadraticOptimizer.lambda_to_spread(self.fairness_df.loc[best_std_idx, 'Lambda'])
+        best_gini_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_gini_idx, 'Lambda'])
+        best_range_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_range_idx, 'Lambda'])
+        best_std_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_std_idx, 'Lambda'])
         
         recommendations['Most Equal (Gini)'] = f"{best_gini_spread:.0f}%"
         recommendations['Smallest Range'] = f"{best_range_spread:.0f}%"

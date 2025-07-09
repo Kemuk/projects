@@ -304,6 +304,157 @@ class House:
                 return room
         return None
     
+    def get_practical_lambda_range(self, threshold: float = 1.0, max_lambda: float = 20.0) -> float:
+        """
+        Calculate the practical lambda range where further increases have minimal effect.
+        
+        Uses sensitivity analysis to find the point of diminishing returns.
+        
+        Args:
+            threshold: Maximum change in £ per room to consider "negligible" (default: £1)
+            max_lambda: Maximum lambda to test (default: 20)
+            
+        Returns:
+            Lambda value where further increases have minimal effect
+        """
+        # Avoid circular import by importing here
+        from optimizers.quadratic_optimizer import QuadraticOptimizer
+        
+        # Cache the result to avoid expensive recalculation
+        cache_key = f"practical_lambda_{threshold}_{max_lambda}_{self.total_rent}_{len(self.individual_rooms)}"
+        if hasattr(self, '_lambda_cache') and cache_key in self._lambda_cache:
+            return self._lambda_cache[cache_key]
+        
+        if not hasattr(self, '_lambda_cache'):
+            self._lambda_cache = {}
+        
+        # Test lambda values with increasing precision
+        test_lambdas = []
+        
+        # Coarse grid first (0, 0.5, 1.0, 1.5, ...)
+        test_lambdas.extend([i * 0.5 for i in range(int(max_lambda * 2) + 1)])
+        
+        # Sort and ensure we have enough resolution
+        test_lambdas = sorted(set(test_lambdas))
+        
+        previous_allocation = None
+        practical_lambda = max_lambda  # Default fallback
+        
+        for lambda_val in test_lambdas:
+            # Calculate allocation for this lambda
+            optimizer = QuadraticOptimizer(lambda_val)
+            current_allocation = optimizer.optimize(self)
+            
+            if previous_allocation is not None:
+                # Calculate maximum change between this and previous allocation
+                max_change = 0
+                for room_id in current_allocation:
+                    change = abs(current_allocation[room_id] - previous_allocation[room_id])
+                    max_change = max(max_change, change)
+                
+                # If the maximum change is below threshold, we've found our practical limit
+                if max_change < threshold:
+                    practical_lambda = lambda_val
+                    break
+            
+            previous_allocation = current_allocation.copy()
+        
+        # Cache the result
+        self._lambda_cache[cache_key] = practical_lambda
+        
+        return practical_lambda
+    
+    def get_sensitivity_analysis(self, num_points: int = 20) -> Dict:
+        """
+        Get detailed sensitivity analysis data.
+        
+        Args:
+            num_points: Number of lambda points to test
+            
+        Returns:
+            Dictionary with sensitivity analysis results
+        """
+        from optimizers.quadratic_optimizer import QuadraticOptimizer
+        
+        practical_max = self.get_practical_lambda_range()
+        lambda_values = [i * practical_max / (num_points - 1) for i in range(num_points)]
+        
+        sensitivity_data = {
+            'lambda_values': lambda_values,
+            'allocations': {},
+            'max_changes': [],
+            'practical_lambda': practical_max
+        }
+        
+        previous_allocation = None
+        
+        for lambda_val in lambda_values:
+            optimizer = QuadraticOptimizer(lambda_val)
+            allocation = optimizer.optimize(self)
+            
+            sensitivity_data['allocations'][lambda_val] = allocation
+            
+            if previous_allocation is not None:
+                max_change = max(
+                    abs(allocation[room_id] - previous_allocation[room_id]) 
+                    for room_id in allocation
+                )
+                sensitivity_data['max_changes'].append(max_change)
+            else:
+                sensitivity_data['max_changes'].append(0)
+            
+            previous_allocation = allocation
+        
+        return sensitivity_data
+    
+    def get_effective_spread_range(self) -> Tuple[float, float]:
+        """
+        Get the effective spread percentage range (always 0% to 100%).
+        
+        The 100% now represents the practical maximum lambda, not a fixed value.
+        
+        Returns:
+            Tuple of (min_spread, max_spread) - always (0.0, 100.0)
+        """
+        return (0.0, 100.0)
+    
+    def spread_to_lambda_for_house(self, spread_percent: float) -> float:
+        """
+        Convert spread percentage to lambda value using this house's practical range.
+        
+        Args:
+            spread_percent: Percentage from 0-100
+            
+        Returns:
+            Lambda value appropriate for this house
+        """
+        # Clamp to valid range
+        spread_percent = max(0.0, min(100.0, spread_percent))
+        
+        # Get house-specific maximum lambda
+        practical_max = self.get_practical_lambda_range()
+        
+        # Map 0-100% to 0-practical_max
+        return (spread_percent / 100.0) * practical_max
+    
+    def lambda_to_spread_for_house(self, lambda_val: float) -> float:
+        """
+        Convert lambda value to spread percentage using this house's practical range.
+        
+        Args:
+            lambda_val: Lambda value
+            
+        Returns:
+            Spread percentage (0-100)
+        """
+        practical_max = self.get_practical_lambda_range()
+        
+        # Clamp lambda to practical range
+        lambda_val = max(0.0, min(practical_max, lambda_val))
+        
+        # Map 0-practical_max to 0-100%
+        return (lambda_val / practical_max) * 100.0
+    
     def to_dict(self) -> Dict:
         """Convert house to dictionary for JSON serialization."""
         return {
@@ -402,4 +553,3 @@ class House:
             proportional_allocation[room_id] = total_cost
         
         return proportional_allocation
-    

@@ -116,7 +116,7 @@ def create_fallback_house() -> House:
         st.error(f"Critical error creating house: {e}")
         return None
 
-def get_spread_description(spread_percent: float) -> str:
+def get_spread_description(spread_percent: float, house: House) -> str:
     """Get user-friendly description of the current spread setting."""
     if spread_percent <= 5:
         return "🟰 Everyone pays the same amount"
@@ -289,7 +289,7 @@ def render_sidebar() -> House:
 def run_optimization(house: House, spread_percent: float) -> OptimizationResult:
     """Run optimization with spread percentage."""
     try:
-        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
+        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent, house)
         result = optimizer.get_optimization_result(house)
         return result
     except Exception as e:
@@ -301,7 +301,7 @@ def render_room_cards(house: House, result: OptimizationResult):
     st.subheader("💰 Monthly Rent for Each Room")
     
     # Get room cards data
-    optimizer = QuadraticOptimizer.from_spread_percentage(st.session_state.spread_percent)
+    optimizer = QuadraticOptimizer.from_spread_percentage(st.session_state.spread_percent, house)
     cards_data = optimizer.get_room_cards_data(house, result.allocation)
     
     # Sort by cost for better visualization
@@ -338,8 +338,25 @@ def render_calculate_rent_tab(house: House):
     st.session_state.spread_percent = spread_percent
     
     # Show current method description
-    description = get_spread_description(spread_percent)
+    description = get_spread_description(spread_percent, house)
     st.markdown(f'<div class="method-description">{description}</div>', unsafe_allow_html=True)
+    
+    # Show practical lambda range info
+    practical_lambda = house.get_practical_lambda_range()
+    current_lambda = house.spread_to_lambda_for_house(spread_percent)
+    
+    with st.expander("ℹ️ Technical Details", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current λ", f"{current_lambda:.2f}")
+        with col2:
+            st.metric("Max Effective λ", f"{practical_lambda:.2f}")
+        with col3:
+            efficiency = (current_lambda / practical_lambda) * 100 if practical_lambda > 0 else 0
+            st.metric("Range Efficiency", f"{efficiency:.0f}%")
+        
+        st.caption(f"This house's practical lambda range is 0 to {practical_lambda:.2f}. "
+                   f"Beyond {practical_lambda:.2f}, changes in rent allocation become negligible (< £1 per room).")
     
     # Quick preset buttons
     col1, col2, col3 = st.columns(3)
@@ -390,7 +407,7 @@ def render_calculate_rent_tab(house: House):
         st.subheader("📊 Detailed Breakdown")
         
         # Get table data
-        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
+        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent, house)
         table_data = optimizer.get_display_table_data(house, result.allocation)
         
         df = pd.DataFrame(table_data)
@@ -439,6 +456,10 @@ def render_calculate_rent_tab(house: House):
 def render_compare_methods_tab(house: House):
     """Render the Compare Methods tab with custom range builder."""
     st.subheader("🔍 Compare Different Methods")
+    
+    # Show practical range information
+    practical_lambda = house.get_practical_lambda_range()
+    st.info(f"📊 **Your house's practical spread range:** 0% to 100% (λ: 0 to {practical_lambda:.2f})")
     
     # Initialize comparison
     comparison = OptimizationComparison(house)
@@ -534,13 +555,17 @@ def render_export_modal():
         
         with col1:
             # Generate summary
+            practical_lambda = house.get_practical_lambda_range()
+            current_lambda = house.spread_to_lambda_for_house(spread_percent)
+            
             summary_text = f"""# Rent Allocation Summary
 
 **House Details:**
 - Total Rent: £{house.total_rent:,.0f}
 - Number of People: {house.num_people}
 - Shared Room: {house.shared_room.size:.1f} sqm
-- Method: {get_spread_description(spread_percent)}
+- Method: {get_spread_description(spread_percent, house)}
+- Spread: {spread_percent:.1f}% (λ={current_lambda:.2f}, max λ={practical_lambda:.2f})
 
 **Key Metrics:**
 - Range: £{result.fairness_metrics['Range_Max_Min']:.0f}

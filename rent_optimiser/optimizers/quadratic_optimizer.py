@@ -95,52 +95,58 @@ class QuadraticOptimizer(BaseOptimizer):
         return proportional_allocation
     
     @staticmethod
-    def spread_to_lambda(spread_percent: float) -> float:
+    def spread_to_lambda(spread_percent: float, house=None) -> float:
         """
         Convert spread percentage (0-100) to lambda value.
         
         Args:
             spread_percent: Percentage from 0 (equal) to 100 (proportional)
+            house: House object for sensitivity analysis (optional, falls back to fixed range)
             
         Returns:
             Lambda value for optimization
         """
-        # Clamp to valid range
-        spread_percent = max(0.0, min(100.0, spread_percent))
-        
-        # Map 0-100% to 0-10 lambda range
-        # This gives good coverage of the optimization space
-        return (spread_percent / 100.0) * 10.0
+        if house is not None:
+            # Use house-specific practical range
+            return house.spread_to_lambda_for_house(spread_percent)
+        else:
+            # Fallback to fixed range for backward compatibility
+            spread_percent = max(0.0, min(100.0, spread_percent))
+            return (spread_percent / 100.0) * 10.0
     
     @staticmethod
-    def lambda_to_spread(lambda_val: float) -> float:
+    def lambda_to_spread(lambda_val: float, house=None) -> float:
         """
         Convert lambda value to spread percentage.
         
         Args:
             lambda_val: Lambda value from optimization
+            house: House object for sensitivity analysis (optional, falls back to fixed range)
             
         Returns:
             Spread percentage (0-100)
         """
-        # Clamp lambda to reasonable range
-        lambda_val = max(0.0, min(10.0, lambda_val))
-        
-        # Map 0-10 lambda to 0-100% spread
-        return (lambda_val / 10.0) * 100.0
+        if house is not None:
+            # Use house-specific practical range
+            return house.lambda_to_spread_for_house(lambda_val)
+        else:
+            # Fallback to fixed range for backward compatibility
+            lambda_val = max(0.0, min(10.0, lambda_val))
+            return (lambda_val / 10.0) * 100.0
     
     @classmethod
-    def from_spread_percentage(cls, spread_percent: float) -> 'QuadraticOptimizer':
+    def from_spread_percentage(cls, spread_percent: float, house=None) -> 'QuadraticOptimizer':
         """
         Create optimizer from spread percentage (0-100).
         
         Args:
             spread_percent: Percentage from 0 (equal) to 100 (proportional)
+            house: House object for sensitivity analysis (recommended)
             
         Returns:
             QuadraticOptimizer instance
         """
-        lambda_val = cls.spread_to_lambda(spread_percent)
+        lambda_val = cls.spread_to_lambda(spread_percent, house)
         return cls(lambda_param=lambda_val)
     
     def get_multiple_allocations(self, house, spread_percentages: List[float]) -> Dict[float, Dict[str, float]]:
@@ -157,7 +163,7 @@ class QuadraticOptimizer(BaseOptimizer):
         results = {}
         
         for spread_percent in spread_percentages:
-            lambda_val = self.spread_to_lambda(spread_percent)
+            lambda_val = self.spread_to_lambda(spread_percent, house)
             
             # Create temporary optimizer with this lambda
             temp_optimizer = QuadraticOptimizer(lambda_val)
@@ -167,9 +173,9 @@ class QuadraticOptimizer(BaseOptimizer):
         
         return results
     
-    def get_spread_description(self) -> str:
+    def get_spread_description(self, house=None) -> str:
         """Get user-friendly description of current spread setting."""
-        spread_percent = self.lambda_to_spread(self.lambda_param)
+        spread_percent = self.lambda_to_spread(self.lambda_param, house)
         
         if spread_percent <= 5:
             return "Everyone pays the same amount"
