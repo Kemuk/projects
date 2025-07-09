@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 import pandas as pd
 import numpy as np
 import json
@@ -32,6 +32,48 @@ class OptimizationResult:
             fairness_metrics=data['fairness_metrics'],
             parameters=data.get('parameters', {})
         )
+    
+    def get_display_data(self, house) -> Dict:
+        """Get result data formatted for UI display."""
+        costs = list(self.allocation.values())
+        
+        return {
+            'method_name': self.method_name,
+            'total_rent': sum(costs),
+            'min_cost': min(costs),
+            'max_cost': max(costs),
+            'cost_range': max(costs) - min(costs),
+            'average_cost': np.mean(costs),
+            'std_deviation': self.fairness_metrics.get('Standard_Deviation', 0),
+            'gini_coefficient': self.fairness_metrics.get('Gini_Coefficient', 0),
+            'fairness_score': self.fairness_metrics.get('Fairness_Score', 0),
+            'spread_percent': self.get_spread_percentage(),
+            'room_allocations': self.allocation
+        }
+    
+    def get_spread_percentage(self) -> Optional[float]:
+        """Get spread percentage if available from parameters."""
+        # Check if lambda parameter exists and convert to spread
+        if 'lambda_param' in self.parameters:
+            lambda_val = self.parameters['lambda_param']
+            # Convert lambda (0-10) to spread percentage (0-100)
+            return (lambda_val / 10.0) * 100.0
+        return None
+    
+    def format_costs_for_display(self) -> Dict[str, str]:
+        """Format costs as currency strings for display."""
+        return {
+            room_id: f"£{cost:.0f}" 
+            for room_id, cost in self.allocation.items()
+        }
+    
+    def get_room_cost_deviations(self, house) -> Dict[str, float]:
+        """Get deviations from average cost for each room."""
+        average_cost = house.target_mean
+        return {
+            room_id: cost - average_cost
+            for room_id, cost in self.allocation.items()
+        }
 
 
 class BaseOptimizer(ABC):
@@ -125,6 +167,84 @@ class BaseOptimizer(ABC):
             })
         
         return pd.DataFrame(data)
+    
+    def get_display_table_data(self, house, allocation: Optional[Dict[str, float]] = None) -> List[Dict]:
+        """
+        Get optimization results formatted for UI table display.
+        
+        Args:
+            house: House object
+            allocation: Pre-calculated allocation or None to calculate
+            
+        Returns:
+            List of dictionaries with formatted data for UI display
+        """
+        if allocation is None:
+            allocation = self.optimize(house)
+        
+        data = []
+        for room in house.individual_rooms:
+            room_id = room.room_id
+            total_cost = allocation.get(room_id, 0)
+            individual_cost = total_cost - house.shared_cost_per_person
+            deviation_from_mean = total_cost - house.target_mean
+            
+            data.append({
+                'Room': room_id,
+                'Size (sqm)': f"{room.size:.1f}",
+                'Desirability': f"{room.desirability_score:.1f}/5",
+                'Monthly Rent': f"£{total_cost:.0f}",
+                'vs. Average': f"{deviation_from_mean:+.0f}",
+                'Per sqm': f"£{total_cost/room.size:.1f}"
+            })
+        
+        return data
+    
+    def get_room_cards_data(self, house, allocation: Optional[Dict[str, float]] = None) -> List[Dict]:
+        """
+        Get data formatted for room cards in the UI.
+        
+        Args:
+            house: House object
+            allocation: Pre-calculated allocation or None to calculate
+            
+        Returns:
+            List of dictionaries with room card data
+        """
+        if allocation is None:
+            allocation = self.optimize(house)
+        
+        cards_data = []
+        for room in house.individual_rooms:
+            room_id = room.room_id
+            total_cost = allocation.get(room_id, 0)
+            deviation_from_mean = total_cost - house.target_mean
+            
+            # Determine color based on cost relative to average
+            if deviation_from_mean > 50:
+                color = "#e74c3c"  # Red for expensive
+                status = "expensive"
+            elif deviation_from_mean < -50:
+                color = "#27ae60"  # Green for cheap
+                status = "cheap"
+            else:
+                color = "#3498db"  # Blue for average
+                status = "average"
+            
+            cards_data.append({
+                'room_id': room_id,
+                'total_cost': total_cost,
+                'cost_formatted': f"£{total_cost:.0f}",
+                'size': room.size,
+                'size_formatted': f"{room.size:.1f}m²",
+                'deviation_from_mean': deviation_from_mean,
+                'deviation_formatted': f"{deviation_from_mean:+.0f}",
+                'cost_per_sqm': total_cost / room.size,
+                'color': color,
+                'status': status
+            })
+        
+        return cards_data
     
     def calculate_fairness_metrics(self, house, allocation: Dict[str, float]) -> Dict[str, float]:
         """
@@ -374,6 +494,34 @@ class BaseOptimizer(ABC):
         
         return summary
     
+    def get_export_data(self, house, allocation: Optional[Dict[str, float]] = None) -> Dict:
+        """
+        Get comprehensive data formatted for export.
+        
+        Args:
+            house: House object  
+            allocation: Pre-calculated allocation or None to calculate
+            
+        Returns:
+            Dictionary with all export data
+        """
+        if allocation is None:
+            allocation = self.optimize(house)
+        
+        result = self.get_optimization_result(house)
+        
+        return {
+            'method_info': {
+                'name': self.name,
+                'parameters': self.parameters
+            },
+            'house_summary': house.get_house_summary(),
+            'allocation': allocation,
+            'room_details': self.get_display_table_data(house, allocation),
+            'fairness_metrics': result.fairness_metrics,
+            'cost_summary': self.get_costs_summary(house, allocation)
+        }
+    
     def to_dict(self) -> Dict:
         """Convert optimizer to dictionary for JSON serialization."""
         return {
@@ -445,3 +593,36 @@ class OptimizerManager:
             return pd.DataFrame(fairness_data)
         else:
             return pd.DataFrame()
+    
+    @staticmethod
+    def create_range_comparison_data(house, spread_percentages: List[float]) -> pd.DataFrame:
+        """
+        Create comparison data for multiple spread percentages.
+        
+        Args:
+            house: House object
+            spread_percentages: List of spread percentages to compare
+            
+        Returns:
+            DataFrame with comparison data
+        """
+        from ..optimizers.quadratic_optimizer import QuadraticOptimizer
+        
+        comparison_data = []
+        
+        for spread_percent in spread_percentages:
+            optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
+            result = optimizer.get_optimization_result(house)
+            
+            for room in house.individual_rooms:
+                cost = result.allocation[room.room_id]
+                comparison_data.append({
+                    'Spread': f"{spread_percent}%",
+                    'Spread_Value': spread_percent,
+                    'Room': room.room_id,
+                    'Cost': cost,
+                    'Size': room.size,
+                    'Desirability': room.desirability_score
+                })
+        
+        return pd.DataFrame(comparison_data)

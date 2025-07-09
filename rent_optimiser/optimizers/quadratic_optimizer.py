@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 import numpy as np
 from .base_optimizer import BaseOptimizer
 
@@ -93,6 +93,90 @@ class QuadraticOptimizer(BaseOptimizer):
             proportional_allocation[room_id] = total_cost
         
         return proportional_allocation
+    
+    @staticmethod
+    def spread_to_lambda(spread_percent: float) -> float:
+        """
+        Convert spread percentage (0-100) to lambda value.
+        
+        Args:
+            spread_percent: Percentage from 0 (equal) to 100 (proportional)
+            
+        Returns:
+            Lambda value for optimization
+        """
+        # Clamp to valid range
+        spread_percent = max(0.0, min(100.0, spread_percent))
+        
+        # Map 0-100% to 0-10 lambda range
+        # This gives good coverage of the optimization space
+        return (spread_percent / 100.0) * 10.0
+    
+    @staticmethod
+    def lambda_to_spread(lambda_val: float) -> float:
+        """
+        Convert lambda value to spread percentage.
+        
+        Args:
+            lambda_val: Lambda value from optimization
+            
+        Returns:
+            Spread percentage (0-100)
+        """
+        # Clamp lambda to reasonable range
+        lambda_val = max(0.0, min(10.0, lambda_val))
+        
+        # Map 0-10 lambda to 0-100% spread
+        return (lambda_val / 10.0) * 100.0
+    
+    @classmethod
+    def from_spread_percentage(cls, spread_percent: float) -> 'QuadraticOptimizer':
+        """
+        Create optimizer from spread percentage (0-100).
+        
+        Args:
+            spread_percent: Percentage from 0 (equal) to 100 (proportional)
+            
+        Returns:
+            QuadraticOptimizer instance
+        """
+        lambda_val = cls.spread_to_lambda(spread_percent)
+        return cls(lambda_param=lambda_val)
+    
+    def get_multiple_allocations(self, house, spread_percentages: List[float]) -> Dict[float, Dict[str, float]]:
+        """
+        Get allocations for multiple spread percentages efficiently.
+        
+        Args:
+            house: House object to optimize
+            spread_percentages: List of spread percentages (0-100)
+            
+        Returns:
+            Dictionary of {spread_percent: {room_id: cost}}
+        """
+        results = {}
+        
+        for spread_percent in spread_percentages:
+            lambda_val = self.spread_to_lambda(spread_percent)
+            
+            # Create temporary optimizer with this lambda
+            temp_optimizer = QuadraticOptimizer(lambda_val)
+            allocation = temp_optimizer.optimize(house)
+            
+            results[spread_percent] = allocation
+        
+        return results
+    
+    def get_spread_description(self) -> str:
+        """Get user-friendly description of current spread setting."""
+        spread_percent = self.lambda_to_spread(self.lambda_param)
+        
+        if spread_percent <= 5:
+            return "Everyone pays the same amount"
+        elif spread_percent >= 95:
+            return "Rent based purely on room value"
+        else:
+            return f"{spread_percent:.0f}% consideration for room differences"
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'QuadraticOptimizer':

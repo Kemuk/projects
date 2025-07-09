@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Streamlined Streamlit app for rent optimization using Quadratic Optimization.
+Intuitive Streamlit app for rent optimization - designed for non-technical housemates.
 """
 
 import streamlit as st
@@ -37,29 +37,42 @@ st.markdown("""
         text-align: center;
         margin-bottom: 1rem;
     }
-    .metric-card {
-        background-color: #f0f2f6;
+    .rent-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 1rem;
+        color: white;
+        text-align: center;
+        margin: 0.5rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .rent-amount {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .room-name {
+        font-size: 1.2rem;
+        opacity: 0.9;
+    }
+    .method-description {
+        background: linear-gradient(135deg, #e8f4f8 0%, #f0f8ff 100%);
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #2E86AB;
+        margin: 0.5rem 0;
+        font-size: 1.1rem;
+        text-align: center;
     }
-    .lambda-description {
-        background-color: #e8f4f8;
-        padding: 0.8rem;
+    .explanation-box {
+        background-color: #f8f9fa;
+        padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #2E86AB;
-        margin: 0.5rem 0;
-        font-style: italic;
-    }
-    .export-button {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        z-index: 999;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
-
 
 def initialize_session_state():
     """Initialize session state variables."""
@@ -68,13 +81,11 @@ def initialize_session_state():
             st.session_state.house = House.create_your_house()
         except Exception as e:
             st.error(f"Error creating house: {e}")
-            # Fallback: create a simple house manually
             st.session_state.house = create_fallback_house()
-    if 'lambda_param' not in st.session_state:
-        st.session_state.lambda_param = 5.0
+    if 'spread_percent' not in st.session_state:
+        st.session_state.spread_percent = 50.0
     if 'optimization_results' not in st.session_state:
         st.session_state.optimization_results = []
-
 
 def create_fallback_house() -> House:
     """Create a fallback house if the main creation fails."""
@@ -103,13 +114,19 @@ def create_fallback_house() -> House:
         
     except Exception as e:
         st.error(f"Critical error creating house: {e}")
-        # Return None if everything fails
         return None
 
+def get_spread_description(spread_percent: float) -> str:
+    """Get user-friendly description of the current spread setting."""
+    if spread_percent <= 5:
+        return "🟰 Everyone pays the same amount"
+    elif spread_percent >= 95:
+        return "📏 Rent based purely on room value"
+    else:
+        return f"⚖️ {spread_percent:.0f}% consideration for room differences"
 
 def render_sidebar() -> House:
-    """Render the sidebar with optimization settings and room configuration."""
-    
+    """Render the simplified sidebar with house configuration only."""
     # Validate house object first
     if not st.session_state.house or not hasattr(st.session_state.house, 'total_rent'):
         st.sidebar.error("⚠️ House data not loaded properly")
@@ -118,41 +135,11 @@ def render_sidebar() -> House:
             st.rerun()
         return None
     
-    st.sidebar.header("🎛️ Optimization Settings")
-    
-    # Lambda parameter slider with conceptual endpoints
-    st.sidebar.markdown("**Allocation Method:**")
-    lambda_param = st.sidebar.slider(
-        "Equal Cost ← → Cost per sqm",
-        min_value=0.0,
-        max_value=10.0,
-        value=st.session_state.lambda_param,
-        step=0.05,
-        help="Left: Everyone pays the same amount | Right: Rent proportional to room value"
-    )
-    
-    # Update session state
-    st.session_state.lambda_param = lambda_param
-    
-    # Show conceptual description instead of just lambda
-    if lambda_param == 0:
-        description = "🟰 Equal Cost (everyone pays same)"
-    elif lambda_param >= 9.5:
-        description = "📏 Cost per sqm (proportional)"
-    else:
-        # Calculate percentage towards proportional
-        percentage = (lambda_param / 10) * 100
-        description = f"⚖️ {percentage:.0f}% towards proportional"
-    
-    st.sidebar.markdown(f'<div class="lambda-description">{description}</div>', unsafe_allow_html=True)
-    
-    st.sidebar.markdown("---")
-    
     # House configuration
     st.sidebar.header("🏠 House Configuration")
     
     # Quick load defaults
-    if st.sidebar.button("📋 Load Your House Data", type="secondary", help="Load your house with default settings"):
+    if st.sidebar.button("📋 Load Default House Data", type="secondary", help="Load your house with default settings"):
         try:
             st.session_state.house = House.create_your_house()
         except Exception as e:
@@ -182,7 +169,7 @@ def render_sidebar() -> House:
     
     st.sidebar.markdown("---")
     
-    # Room configuration - more prominent
+    # Room configuration
     st.sidebar.subheader("🚪 Configure Individual Rooms")
     st.sidebar.markdown("*Adjust room characteristics:*")
     
@@ -206,7 +193,7 @@ def render_sidebar() -> House:
         with col1:
             size_score = st.select_slider(
                 "Size",
-                options=np.arange(0, 5.5, 0.5) ,
+                options=np.arange(0, 5.5, 0.5),
                 value=room.desirability_factors.size_score,
                 key=f"feel_{i}",
                 help="How spacious does this room feel? (50% weight)"
@@ -215,8 +202,8 @@ def render_sidebar() -> House:
         with col2:
             noise_level = st.select_slider(
                 "Quiet",
-                options=np.arange(0, 5.5, 0.5) ,
-                value=int(room.desirability_factors.noise_level),
+                options=np.arange(0, 5.5, 0.5),
+                value=room.desirability_factors.noise_level,
                 key=f"quiet_{i}",
                 help="How quiet is this room? (40% weight)"
             )
@@ -224,8 +211,8 @@ def render_sidebar() -> House:
         with col3:
             accessibility = st.select_slider(
                 "Accessibility",
-                options=np.arange(0, 5.5, 0.5) ,
-                value=int(room.desirability_factors.accessibility),
+                options=np.arange(0, 5.5, 0.5),
+                value=room.desirability_factors.accessibility,
                 key=f"access_{i}",
                 help="How convenient to kitchen/bathroom? (10% weight)"
             )
@@ -233,7 +220,7 @@ def render_sidebar() -> House:
         # Show current desirability score
         current_factors = DesirabilityFactors(size_score, noise_level, accessibility)
         current_score = current_factors.calculate_overall_score()
-        st.sidebar.caption(f"Score: {current_score:.1f}/5 | £{(total_rent/6)*(room_size/15):.0f}/month est.")
+        st.sidebar.caption(f"Score: {current_score:.1f}/5")
         st.sidebar.markdown("---")
         
         rooms_data.append({
@@ -244,13 +231,13 @@ def render_sidebar() -> House:
             'accessibility': float(accessibility)
         })
     
-    # Auto-update or manual update
+    # Auto-update
     auto_update = st.sidebar.checkbox("🔄 Auto-update results", value=True, help="Update results as you change settings")
     
-    # Update house when settings change (auto or manual)
+    # Update house when settings change
     should_update = auto_update
     if not auto_update:
-        should_update = st.sidebar.button("📊 Calculate with New Settings", type="primary")
+        should_update = st.sidebar.button("📊 Update House Settings", type="primary")
     
     if should_update:
         # Check if any settings actually changed
@@ -299,130 +286,132 @@ def render_sidebar() -> House:
     
     return st.session_state.house
 
-
-def run_optimization(house: House, lambda_param: float) -> OptimizationResult:
-    """Run quadratic optimization."""
+def run_optimization(house: House, spread_percent: float) -> OptimizationResult:
+    """Run optimization with spread percentage."""
     try:
-        optimizer = QuadraticOptimizer(lambda_param)
+        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
         result = optimizer.get_optimization_result(house)
         return result
     except Exception as e:
         st.error(f"Error running optimization: {str(e)}")
         return None
 
+def render_room_cards(house: House, result: OptimizationResult):
+    """Render room cards with color coding."""
+    st.subheader("💰 Monthly Rent for Each Room")
+    
+    # Get room cards data
+    optimizer = QuadraticOptimizer.from_spread_percentage(st.session_state.spread_percent)
+    cards_data = optimizer.get_room_cards_data(house, result.allocation)
+    
+    # Sort by cost for better visualization
+    cards_data.sort(key=lambda x: x['total_cost'], reverse=True)
+    
+    # Display in columns
+    cols = st.columns(3)
+    for i, card_data in enumerate(cards_data):
+        with cols[i % 3]:
+            st.markdown(f"""
+            <div style="background-color: {card_data['color']}; padding: 1rem; border-radius: 0.5rem; color: white; text-align: center; margin: 0.5rem 0;">
+                <div style="font-size: 1.2rem; font-weight: bold; margin-bottom: 0.5rem;">{card_data['room_id']}</div>
+                <div style="font-size: 1.8rem; font-weight: bold;">{card_data['cost_formatted']}</div>
+                <div style="font-size: 0.9rem; opacity: 0.8;">{card_data['size_formatted']} • {card_data['deviation_formatted']} vs avg</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-def render_results(house: House, result: OptimizationResult):
-    """Render the optimization results."""
-    if not result:
-        st.warning("⚠️ Unable to calculate results. Please check your settings.")
-        return
+def render_calculate_rent_tab(house: House):
+    """Render the Calculate Rent tab with slider and results."""
     
-    # Key metrics row
-    st.subheader("💰 Rent Allocation Results")
+    # Spread slider
+    st.subheader("🎛️ How much should room differences matter?")
     
-    col1, col2, col3, col4, col5, col6, col7= st.columns(7)
-    
-    with col1:
-        st.metric(
-            "Total Rent",
-            f"£{house.total_rent:,.0f}",
-            help="Total monthly rent for the house"
-        )
-    
-    with col2:
-        st.metric(
-            "Average per Person",
-            f"£{house.target_mean:.0f}",
-            help="Average Rent"
-        )
-    
-    with col3:
-        range_val = result.fairness_metrics.get('Range_Max_Min', 0)
-        st.metric(
-            "Range",
-            f"£{range_val:.0f}",
-            help="Difference between highest and lowest rent"
-        )
-    
-    with col4:
-        std_dev = result.fairness_metrics.get('Standard_Deviation', 0)
-        gini = result.fairness_metrics.get('Gini_Coefficient', 0)
-        st.metric(
-            "Spread",
-            f"±£{std_dev:.0f}",
-            help=f"Standard deviation of rents. Gini coefficient: {gini:.3f} (0=perfect equality, 1=maximum inequality)"
-        )
-    with col5:
-        if house.shared_room:
-            st.metric("Shared Cost/Person", f"£{house.shared_cost_per_person:.0f}")
-    
-    with col6:
-        st.metric("People", house.num_people)
-
-    with col7:
-        st.metric("Balance Factor (λ)", st.session_state.lambda_param)
-        
-
-    # Results table
-    st.subheader("📊 Individual Rent Breakdown")
-    
-    # Prepare data for table
-    table_data = []
-    for room in house.individual_rooms:
-        total_cost = result.allocation[room.room_id]
-        individual_cost = total_cost - house.shared_cost_per_person
-        deviation = total_cost - house.target_mean
-        
-        table_data.append({
-            'Room': room.room_id,
-            'Size (sqm)': f"{room.size:.1f}",
-            'Desirability': f"{room.desirability_score:.1f}/5",
-            'Monthly Rent': f"£{total_cost:.0f}",
-            'vs. Average': f"{deviation:+.0f}",
-            'Per sqm': f"£{total_cost/room.size:.1f}"
-        })
-    
-    df = pd.DataFrame(table_data)
-    
-    # Display the table with styling
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True
+    spread_percent = st.slider(
+        "Rent Spread",
+        min_value=0.0,
+        max_value=100.0,
+        value=st.session_state.spread_percent,
+        step=1.0,
+        help="0% = Everyone pays the same | 100% = Rent proportional to room value"
     )
     
-    # Visualizations
-    render_visualizations(house, result)
-
-
-def render_visualizations(house: House, result: OptimizationResult):
-    """Create dynamic visualizations."""
-    st.subheader("📈 Visual Analysis")
+    # Update session state
+    st.session_state.spread_percent = spread_percent
     
-    # Prepare data
-    plot_data = []
-    for room in house.individual_rooms:
-        total_cost = result.allocation[room.room_id]
-        deviation = total_cost - house.target_mean
-        
-        plot_data.append({
-            'Room': room.room_id,
-            'Total_Cost': total_cost,
-            'Size': room.size,
-            'Desirability': room.desirability_score,
-            'Deviation': deviation,
-            'Cost_per_sqm': total_cost / room.size,
-            'Size_Score': room.desirability_factors.size_score,
-            'Noise_Level': room.desirability_factors.noise_level,
-            'Accessibility': room.desirability_factors.accessibility
-        })
+    # Show current method description
+    description = get_spread_description(spread_percent)
+    st.markdown(f'<div class="method-description">{description}</div>', unsafe_allow_html=True)
     
-    df_plot = pd.DataFrame(plot_data)
-    
-    col1, col2 = st.columns(2)
-    
+    # Quick preset buttons
+    col1, col2, col3 = st.columns(3)
     with col1:
-        # Bar chart of total costs with dynamic coloring
+        if st.button("Equal Split", help="Everyone pays the same"):
+            st.session_state.spread_percent = 0.0
+            st.rerun()
+    
+    with col2:
+        if st.button("Balanced", help="Consider room differences moderately"):
+            st.session_state.spread_percent = 50.0
+            st.rerun()
+    
+    with col3:
+        if st.button("Proportional", help="Rent based on room value"):
+            st.session_state.spread_percent = 100.0
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Run optimization
+    result = run_optimization(house, spread_percent)
+    
+    if result:
+        # Room cards
+        render_room_cards(house, result)
+        
+        # Summary stats
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        costs = [result.allocation[room.room_id] for room in house.individual_rooms]
+        
+        with col1:
+            st.metric("Cheapest Room", f"£{min(costs):.0f}")
+        
+        with col2:
+            st.metric("Most Expensive", f"£{max(costs):.0f}")
+        
+        with col3:
+            st.metric("Difference", f"£{max(costs) - min(costs):.0f}")
+        
+        with col4:
+            fairness_score = 1 - result.fairness_metrics.get('Gini_Coefficient', 0)
+            st.metric("Fairness Score", f"{fairness_score:.0%}", help="Higher = more fair distribution")
+        
+        # Results table
+        st.subheader("📊 Detailed Breakdown")
+        
+        # Get table data
+        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent)
+        table_data = optimizer.get_display_table_data(house, result.allocation)
+        
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Bar chart
+        st.subheader("📈 Visual Breakdown")
+        
+        plot_data = []
+        for room in house.individual_rooms:
+            total_cost = result.allocation[room.room_id]
+            deviation = total_cost - house.target_mean
+            
+            plot_data.append({
+                'Room': room.room_id,
+                'Total_Cost': total_cost,
+                'Deviation': deviation,
+            })
+        
+        df_plot = pd.DataFrame(plot_data)
+        
         fig_bar = px.bar(
             df_plot,
             x='Room',
@@ -430,12 +419,7 @@ def render_visualizations(house: House, result: OptimizationResult):
             title='Monthly Rent by Room',
             color='Deviation',
             color_continuous_scale='RdYlGn_r',
-            labels={'Total_Cost': 'Monthly Rent (£)', 'Deviation': 'vs Average (£)'},
-            hover_data={
-                'Size': ':.1f',
-                'Desirability': ':.1f',
-                'Cost_per_sqm': ':.1f'
-            }
+            labels={'Total_Cost': 'Monthly Rent (£)', 'Deviation': 'vs Average (£)'}
         )
         
         # Add average line
@@ -443,231 +427,103 @@ def render_visualizations(house: House, result: OptimizationResult):
             y=house.target_mean,
             line_dash="dash",
             line_color="gray",
-            annotation_text="Average (Equal Split)"
+            annotation_text="Equal Split"
         )
         
-        fig_bar.update_layout(
-            height=400,
-            showlegend=False
-        )
+        fig_bar.update_layout(height=400, showlegend=False)
         st.plotly_chart(fig_bar, use_container_width=True)
     
-    with col2:
-        # Scatter plot: Desirability vs Cost
-        fig_scatter = px.scatter(
-            df_plot,
-            x='Desirability',
-            y='Total_Cost',
-            size='Size',
-            color='Room',
-            title='Room Desirability vs Monthly Rent',
-            labels={
-                'Desirability': 'Desirability Score (1-5)', 
-                'Total_Cost': 'Monthly Rent (£)',
-                'Size': 'Room Size (sqm)'
-            },
-            hover_data={
-                'Size_Score': True,
-                'Noise_Level': True,
-                'Accessibility': True,
-                'Cost_per_sqm': ':.1f'
-            }
-        )
-        
-        fig_scatter.update_layout(height=400)
-        st.plotly_chart(fig_scatter, use_container_width=True)
+    else:
+        st.error("Unable to calculate results. Please check your settings.")
 
-
-def render_visualizations(house: House, result: OptimizationResult):
-    """Create dynamic visualizations."""
-    st.subheader("📈 Visual Analysis")
+def render_compare_methods_tab(house: House):
+    """Render the Compare Methods tab with custom range builder."""
+    st.subheader("🔍 Compare Different Methods")
     
-    # Prepare data
-    plot_data = []
+    # Initialize comparison
+    comparison = OptimizationComparison(house)
+    
+    # Custom range builder
+    comparison.render_custom_range_builder()
+    
+    # Recommendations
+    st.markdown("---")
+    st.subheader("💡 Recommendations")
+    
+    try:
+        recommendations = comparison.get_spread_recommendations()
+        if recommendations:
+            cols = st.columns(len(recommendations))
+            for i, (criteria, recommendation) in enumerate(recommendations.items()):
+                with cols[i]:
+                    st.metric(criteria, recommendation)
+    except Exception as e:
+        st.info("Run comparisons above to see recommendations")
+
+def render_room_details_tab(house: House):
+    """Render the Room Details tab."""
+    st.subheader("🏠 Room Information")
+    
+    # Room details table
+    room_data = []
     for room in house.individual_rooms:
-        total_cost = result.allocation[room.room_id]
-        deviation = total_cost - house.target_mean
-        
-        plot_data.append({
+        room_data.append({
             'Room': room.room_id,
-            'Total_Cost': total_cost,
-            'Size': room.size,
-            'Desirability': room.desirability_score,
-            'Deviation': deviation,
-            'Cost_per_sqm': total_cost / room.size,
-            'Size_Score': room.desirability_factors.size_score,
-            'Noise_Level': room.desirability_factors.noise_level,
-            'Accessibility': room.desirability_factors.accessibility
+            'Size (m²)': f"{room.size:.1f}",
+            'Spaciousness': f"{room.desirability_factors.size_score:.1f}/5",
+            'Quietness': f"{room.desirability_factors.noise_level:.1f}/5",
+            'Accessibility': f"{room.desirability_factors.accessibility:.1f}/5",
+            'Overall Score': f"{room.desirability_score:.1f}/5"
         })
     
-    df_plot = pd.DataFrame(plot_data)
+    df_rooms = pd.DataFrame(room_data)
+    st.dataframe(df_rooms, use_container_width=True, hide_index=True)
     
-    col1, col2 = st.columns(2)
+    # House summary
+    st.subheader("📋 House Summary")
     
+    summary = house.get_house_summary()
+    
+    col1, col2, col3 = st.columns(3)
     with col1:
-        # Bar chart of total costs with dynamic coloring
-        fig_bar = px.bar(
-            df_plot,
-            x='Room',
-            y='Total_Cost',
-            title='Monthly Rent by Room',
-            color='Deviation',
-            color_continuous_scale='RdYlGn_r',
-            labels={'Total_Cost': 'Monthly Rent (£)', 'Deviation': 'vs Average (£)'},
-            hover_data={
-                'Size': ':.1f',
-                'Desirability': ':.1f',
-                'Cost_per_sqm': ':.1f'
-            }
-        )
-        
-        # Add average line
-        fig_bar.add_hline(
-            y=house.target_mean,
-            line_dash="dash",
-            line_color="gray",
-            annotation_text="Average (Equal Split)"
-        )
-        
-        fig_bar.update_layout(
-            height=400,
-            showlegend=False
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.metric("Total Rent", f"£{summary['total_rent']:,.0f}")
+        st.metric("People", summary['num_people'])
     
     with col2:
-        # Scatter plot: Desirability vs Cost
-        fig_scatter = px.scatter(
-            df_plot,
-            x='Desirability',
-            y='Total_Cost',
-            size='Size',
-            color='Room',
-            title='Room Desirability vs Monthly Rent',
-            labels={
-                'Desirability': 'Desirability Score (1-5)', 
-                'Total_Cost': 'Monthly Rent (£)',
-                'Size': 'Room Size (sqm)'
-            },
-            hover_data={
-                'Size_Score': True,
-                'Noise_Level': True,
-                'Accessibility': True,
-                'Cost_per_sqm': ':.1f'
-            }
-        )
-        
-        fig_scatter.update_layout(height=400)
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-
-def main():
-    """Main Streamlit app function."""
-    # Initialize session state
-    initialize_session_state()
+        st.metric("Average Rent", f"£{summary['average_rent']:.0f}")
+        st.metric("Shared Cost/Person", f"£{summary['shared_cost_per_person']:.0f}")
     
-    # Header with export in top right
-    col_title, col_export = st.columns([4, 1])
+    with col3:
+        st.metric("Total Area", f"{summary['total_area']:.1f}m²")
+        st.metric("Shared Room", f"{summary['shared_room_size']:.1f}m²")
     
-    with col_title:
-        st.markdown('<p class="main-header">🏠 Fair Rent Calculator</p>', unsafe_allow_html=True)
-        st.markdown("**Optimize rent allocation using quadratic optimization - balance equality with proportionality**")
+    # Explanation
+    st.markdown("---")
+    st.subheader("🤔 How Room Scoring Works")
     
-    with col_export:
-        st.markdown("### ")  # Space for alignment
-        if st.button("💾 Export Results", type="secondary", help="Export current results"):
-            render_export_modal()
-    
-    # Sidebar configuration
-    house = render_sidebar()
-    
-    # Check if house is valid
-    if not house:
-        st.error("🏠 Unable to load house configuration. Please check the sidebar to reload.")
-        st.stop()
-    
-    # Main content
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        # Run current optimization
-        result = run_optimization(house, st.session_state.lambda_param)
-        
-        if result:
-            # Auto-run comparison analysis first to get data
-            comparison = OptimizationComparison(house)
-            st.session_state.comparison_results = comparison
-            
-            with st.spinner("Running analysis..."):
-                lambda_values = list(range(11))  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                comparison_data = comparison.run_lambda_comparison(lambda_values)
-            
-            # Main content tabs
-            tab1, tab2, tab3, tab4 = st.tabs(["💰 Current Results", "📊 Fairness Analysis", "📋 Cost Summary", "ℹ️ Methodology"])
-            
-            with tab1:
-                render_results(house, result)
-                
-                # Quick comparison summary
-                st.markdown("---")
-                st.subheader("📈 Quick Comparison Summary")
-                
-                col_a, col_b, col_c = st.columns(3)
-                
-                with col_a:
-                    current_costs = comparison_data['detailed_results']
-                    min_cost = current_costs['Total_Cost'].min()
-                    max_cost = current_costs['Total_Cost'].max()
-                    st.metric(
-                        "Range Across Methods",
-                        f"£{min_cost:.0f} - £{max_cost:.0f}",
-                        help="Lowest to highest room cost across all settings"
-                    )
-                
-                with col_b:
-                    fairness_df = comparison_data['fairness_metrics']
-                    best_gini_lambda = int(fairness_df.loc[fairness_df['Gini_Coefficient'].idxmin(), 'Lambda'])
-                    st.metric(
-                        "Most Equal Setting",
-                        f"Balance = {best_gini_lambda}",
-                        help="Setting that produces the most equal distribution"
-                    )
-                
-                with col_c:
-                    current_lambda = st.session_state.lambda_param
-                    # Round to nearest integer since we have exact data for all integers
-                    rounded_lambda = int(round(current_lambda))
-                    current_gini = fairness_df[fairness_df['Lambda'] == rounded_lambda]['Gini_Coefficient'].iloc[0]
-                    
-                    st.metric(
-                        "Current Equality",
-                        f"Gini: {current_gini:.3f}",
-                        help="Lower = more equal (0=perfect equality, 1=max inequality)"
-                    )
-            
-            with tab2:
-                comparison.render_fairness_tab()
-            
-            with tab3:
-                comparison.render_summary_tab()
-            
-            with tab4:
-                render_methodology()
-
-
+    st.markdown("""
+    <div class="explanation-box">
+    <strong>Room Quality Calculation:</strong><br>
+    • <strong>Spaciousness (50% weight):</strong> How big the room feels<br>
+    • <strong>Quietness (40% weight):</strong> How peaceful the room is<br>
+    • <strong>Accessibility (10% weight):</strong> How convenient to kitchen/bathroom<br><br>
+    <strong>Room Value = Size × Quality Score</strong><br>
+    This room value is used to determine proportional rent allocation.
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_export_modal():
-    """Render export options in a modal-like container."""
+    """Render export options."""
     if 'house' not in st.session_state or not st.session_state.house:
         st.error("No data to export")
         return
     
     # Create export data
     house = st.session_state.house
-    lambda_val = st.session_state.lambda_param
+    spread_percent = st.session_state.spread_percent
     
     # Run current optimization for export
-    result = run_optimization(house, lambda_val)
+    result = run_optimization(house, spread_percent)
     
     if not result:
         st.error("Unable to generate export data")
@@ -684,7 +540,7 @@ def render_export_modal():
 - Total Rent: £{house.total_rent:,.0f}
 - Number of People: {house.num_people}
 - Shared Room: {house.shared_room.size:.1f} sqm
-- Method: Balance = {lambda_val:.1f} ({("Equal Cost" if lambda_val == 0 else "Cost per sqm" if lambda_val >= 9.5 else f"{(lambda_val/10)*100:.0f}% proportional")})
+- Method: {get_spread_description(spread_percent)}
 
 **Key Metrics:**
 - Range: £{result.fairness_metrics['Range_Max_Min']:.0f}
@@ -702,7 +558,7 @@ def render_export_modal():
         with col2:
             st.subheader("📁 Download Options")
             
-            # Single CSV download (current results)
+            # Single CSV download
             csv_data = []
             for room in house.individual_rooms:
                 total_cost = result.allocation[room.room_id]
@@ -718,7 +574,7 @@ def render_export_modal():
                     'Individual_Cost': round(individual_cost, 2),
                     'Shared_Cost': round(house.shared_cost_per_person, 2),
                     'Total_Monthly_Cost': round(total_cost, 2),
-                    'Balance_Value': lambda_val
+                    'Spread_Percent': spread_percent
                 })
             
             csv_df = pd.DataFrame(csv_data)
@@ -727,94 +583,47 @@ def render_export_modal():
             st.download_button(
                 label="📄 Download Current Results CSV",
                 data=csv_string,
-                file_name=f"rent_allocation_balance_{lambda_val}.csv",
+                file_name=f"rent_allocation_spread_{spread_percent:.0f}percent.csv",
                 mime="text/csv",
                 type="secondary"
             )
-            
-            # Complete package download (comparison + charts)
-            if 'comparison_results' in st.session_state:
-                st.markdown("---")
-                st.markdown("**🎁 Complete Analysis Package**")
-                st.markdown("*Includes all data tables + interactive charts*")
-                
-                if st.button("📦 Prepare Download Package", type="primary"):
-                    with st.spinner("Creating export package..."):
-                        try:
-                            zip_data = st.session_state.comparison_results.create_export_package()
-                            
-                            if zip_data:
-                                st.download_button(
-                                    label="💾 Download Complete Package (ZIP)",
-                                    data=zip_data,
-                                    file_name="rent_analysis_complete.zip",
-                                    mime="application/zip",
-                                    type="primary"
-                                )
-                                
-                                st.success("✅ Package includes:")
-                                st.markdown("""
-                                - `detailed_results.csv` - All Balance Factors & room costs
-                                - `fairness_metrics.csv` - Fairness analysis across settings  
-                                - `cost_summary.csv` - Cost comparison table
-                                - Interactive charts as HTML files
-                                """)
-                            else:
-                                st.error("Unable to create export package")
-                        except Exception as e:
-                            st.error(f"Error creating package: {str(e)}")
-            else:
-                st.info("Run analysis first to get complete package option")
 
-
-def render_methodology():
-    """Render methodology information."""
-    st.markdown("""
-    ### Methodology: Quadratic Optimization for Fair Rent Allocation
+def main():
+    """Main Streamlit app function."""
+    # Initialize session state
+    initialize_session_state()
     
-    This tool uses **quadratic optimization** to find the optimal balance between equality and proportionality in rent allocation.
+    # Header
+    col_title, col_export = st.columns([4, 1])
     
-    #### 🎯 **The Optimization Problem**
+    with col_title:
+        st.markdown('<p class="main-header">🏠 Fair Rent Calculator</p>', unsafe_allow_html=True)
+        st.markdown("**Find the fair rent for each room in your house**")
     
-    We minimize: **Σ(cost_i - equal_split)² + λ × Σ(cost_i - proportional_i)²**
+    with col_export:
+        st.markdown("### ")  # Space for alignment
+        if st.button("💾 Export Results", type="secondary", help="Export current results"):
+            render_export_modal()
     
-    Where:
-    - **cost_i** = monthly rent for room i
-    - **equal_split** = total_rent ÷ number_of_people  
-    - **proportional_i** = rent based on room value (size × desirability)
-    - **λ (balance parameter)** = weighting factor that controls the balance
+    # Sidebar
+    house = render_sidebar()
     
-    #### ⚖️ **How the Balance Parameter Works**
+    # Check if house is valid
+    if not house:
+        st.error("🏠 Unable to load house configuration. Please check the sidebar to reload.")
+        st.stop()
     
-    - **Balance = 0**: Pure equality → everyone pays exactly the same amount
-    - **Balance = 5**: Balanced approach → considers both equality and room differences  
-    - **Balance = 10**: Proportional → rent purely based on room value
+    # Main content tabs
+    tab1, tab2, tab3 = st.tabs(["💰 Calculate Rent", "🔍 Compare Methods", "🏠 Room Details"])
     
-    #### 📏 **Room Desirability Calculation**
+    with tab1:
+        render_calculate_rent_tab(house)
     
-    Each room gets a desirability score (1-5) based on:
-    - **Size Quality (50% weight)**: How spacious the room feels
-    - **Noise Level (40% weight)**: How quiet the room is (1=noisy, 5=quiet)
-    - **Accessibility (10% weight)**: Convenience to kitchen/bathroom
+    with tab2:
+        render_compare_methods_tab(house)
     
-    **Final room value** = room_size × desirability_score
-    
-    #### 📊 **Fairness Metrics**
-    
-    - **Range**: Difference between highest and lowest rent
-    - **Standard Deviation**: How much rents vary around the average
-    - **Gini Coefficient**: Measure of inequality (0=perfect equality, 1=maximum inequality)
-    
-    #### 💡 **Practical Guidelines**
-    
-    **Start with Balance = 5** for a balanced approach. Then adjust:
-    - **Move left (lower balance)** if you prefer more equal costs
-    - **Move right (higher balance)** if room differences are significant
-    - **Use Balance = 0** if you want everyone to pay exactly the same
-    
-    The optimization automatically ensures the total equals your specified rent while finding the fairest allocation according to your chosen balance point.
-    """)
-
+    with tab3:
+        render_room_details_tab(house)
 
 if __name__ == "__main__":
     main()

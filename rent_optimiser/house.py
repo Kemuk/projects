@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import pandas as pd
 from dataclasses import dataclass
 import json
@@ -95,6 +95,23 @@ class Room:
         self.individual_cost = individual_cost
         self.shared_cost_portion = shared_cost_portion
         self.total_cost = individual_cost + shared_cost_portion
+    
+    def get_display_info(self) -> Dict:
+        """Get room information formatted for UI display."""
+        return {
+            'room_id': self.room_id,
+            'size': self.size,
+            'size_formatted': f"{self.size:.1f}m²",
+            'desirability_score': self.desirability_score,
+            'desirability_formatted': f"{self.desirability_score:.1f}/5",
+            'size_score': self.desirability_factors.size_score,
+            'noise_level': self.desirability_factors.noise_level,
+            'accessibility': self.desirability_factors.accessibility,
+            'total_cost': self.total_cost,
+            'individual_cost': self.individual_cost,
+            'shared_cost_portion': self.shared_cost_portion,
+            'is_shared': self.is_shared
+        }
     
     def to_dict(self) -> Dict:
         """Convert room to dictionary representation for JSON serialization."""
@@ -216,6 +233,77 @@ class House:
         total = sum(allocation.values())
         return abs(total - self.total_rent) < 0.01
     
+    def get_room_summary_data(self) -> List[Dict]:
+        """Get clean room data for UI display."""
+        summary = []
+        for room in self.individual_rooms:
+            summary.append(room.get_display_info())
+        return summary
+    
+    def get_cost_edge_cases(self) -> Dict:
+        """Pre-calculate equal split and pure proportional results."""
+        # Equal split (everyone pays the same)
+        equal_split_cost = self.target_mean
+        equal_allocation = {room.room_id: equal_split_cost for room in self.individual_rooms}
+        
+        # Pure proportional (based on room value: size × desirability)
+        room_values = {}
+        total_value = 0
+        
+        for room in self.individual_rooms:
+            room_value = room.size * room.desirability_score
+            room_values[room.room_id] = room_value
+            total_value += room_value
+        
+        proportional_allocation = {}
+        for room_id, room_value in room_values.items():
+            proportion = room_value / total_value
+            individual_cost = proportion * self.individual_rent_pool
+            total_cost = individual_cost + self.shared_cost_per_person
+            proportional_allocation[room_id] = total_cost
+        
+        return {
+            'equal_split': equal_allocation,
+            'proportional': proportional_allocation,
+            'room_values': room_values,
+            'total_value': total_value
+        }
+    
+    @property
+    def room_rent_range(self) -> Tuple[float, float]:
+        """Get min/max possible rent across all methods."""
+        edge_cases = self.get_cost_edge_cases()
+        
+        all_costs = []
+        all_costs.extend(edge_cases['equal_split'].values())
+        all_costs.extend(edge_cases['proportional'].values())
+        
+        return (min(all_costs), max(all_costs))
+    
+    def get_house_summary(self) -> Dict:
+        """Get comprehensive house summary for UI display."""
+        min_rent, max_rent = self.room_rent_range
+        
+        return {
+            'total_rent': self.total_rent,
+            'num_people': self.num_people,
+            'average_rent': self.target_mean,
+            'total_area': self.total_area,
+            'shared_room_size': self.shared_room.size if self.shared_room else 0,
+            'shared_cost_per_person': self.shared_cost_per_person,
+            'individual_rent_pool': self.individual_rent_pool,
+            'min_possible_rent': min_rent,
+            'max_possible_rent': max_rent,
+            'rent_range': max_rent - min_rent
+        }
+    
+    def get_room_by_id(self, room_id: str) -> Optional[Room]:
+        """Get room by ID."""
+        for room in self.individual_rooms:
+            if room.room_id == room_id:
+                return room
+        return None
+    
     def to_dict(self) -> Dict:
         """Convert house to dictionary for JSON serialization."""
         return {
@@ -314,3 +402,4 @@ class House:
             proportional_allocation[room_id] = total_cost
         
         return proportional_allocation
+    
