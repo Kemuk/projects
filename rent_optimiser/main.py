@@ -116,6 +116,162 @@ def create_fallback_house() -> House:
         st.error(f"Critical error creating house: {e}")
         return None
 
+def render_constraint_panel(house: House) -> bool:
+    """
+    Render constraint input panel in sidebar.
+    
+    Returns:
+        True if any constraints were changed
+    """
+    constraints_changed = False
+    
+    # Quick info about constraints
+    active_constraints = house.get_active_constraints()
+    if active_constraints:
+        st.sidebar.info(f"📊 {len(active_constraints)} active constraint(s)")
+    
+    # Constraint inputs for each room
+    for room in house.individual_rooms:
+        room_id = room.room_id
+        current_constraint = house.room_constraints.get(room_id)
+        
+        with st.sidebar.expander(f"🚪 {room_id} Constraints", expanded=False):
+            
+            # Enable/disable constraint
+            is_active = st.checkbox(
+                "Enable rent constraints",
+                value=current_constraint.is_active if current_constraint else False,
+                key=f"constraint_active_{room_id}",
+                help=f"Set acceptable rent range for {room_id}"
+            )
+            
+            min_rent = None
+            max_rent = None
+            
+            if is_active:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    min_rent = st.number_input(
+                        "Min £/month",
+                        min_value=0,
+                        max_value=int(house.total_rent),
+                        value=int(current_constraint.min_acceptable) if current_constraint and current_constraint.min_acceptable else None,
+                        step=10,
+                        key=f"constraint_min_{room_id}",
+                        help="Minimum acceptable monthly rent"
+                    )
+                
+                with col2:
+                    max_rent = st.number_input(
+                        "Max £/month", 
+                        min_value=0,
+                        max_value=int(house.total_rent),
+                        value=int(current_constraint.max_acceptable) if current_constraint and current_constraint.max_acceptable else None,
+                        step=10,
+                        key=f"constraint_max_{room_id}",
+                        help="Maximum acceptable monthly rent"
+                    )
+                
+                # Validation
+                if min_rent is not None and max_rent is not None and min_rent > max_rent:
+                    st.error("Min cannot be greater than max")
+                    is_active = False
+            
+            # Update constraint if changed
+            needs_update = False
+            if current_constraint:
+                if (current_constraint.is_active != is_active or
+                    current_constraint.min_acceptable != min_rent or
+                    current_constraint.max_acceptable != max_rent):
+                    needs_update = True
+            else:
+                if is_active:
+                    needs_update = True
+            
+            if needs_update:
+                success = house.add_room_constraint(
+                    room_id=room_id,
+                    min_acceptable=min_rent,
+                    max_acceptable=max_rent,
+                    is_active=is_active
+                )
+                if success:
+                    constraints_changed = True
+    
+    # Show constraint summary if any are active
+    if active_constraints:
+        with st.sidebar.expander("📊 Constraint Summary", expanded=False):
+            summary = house.get_constraint_summary()
+            
+            if summary['has_feasible_solution']:
+                feasible_range = summary['feasible_range']
+                st.success(f"✅ Feasible range: {feasible_range['min_spread']:.0f}% - {feasible_range['max_spread']:.0f}%")
+                
+                if 'constraint_impact' in summary:
+                    freedom = summary['constraint_impact']['freedom_retained']
+                    st.info(f"🎯 {freedom:.0f}% of solution space remains")
+            else:
+                st.error("❌ No feasible solution with current constraints")
+                
+                # Show conflicts
+                conflicts = house.find_constraint_conflicts()
+                for conflict in conflicts:
+                    st.error(f"⚠️ {conflict['description']}")
+    
+    return constraints_changed
+
+def render_feasible_slider(house: House) -> float:
+    """
+    Render slider with feasible zones highlighted.
+    
+    Returns:
+        Selected spread percentage
+    """
+    # Get feasibility analysis
+    min_feasible, max_feasible, feasible_spreads = house.get_feasible_spread_range()
+    active_constraints = house.get_active_constraints()
+    
+    # Display feasibility status
+    if active_constraints:
+        if min_feasible is not None and max_feasible is not None:
+            st.success(f"✅ **Feasible range: {min_feasible:.0f}% - {max_feasible:.0f}%** (with current constraints)")
+        else:
+            st.error("❌ **No feasible solution** with current constraints")
+            st.markdown("*Adjust constraints or remove them to find solutions*")
+    
+    # Regular slider (we'll add visual enhancement later)
+    spread_percent = st.slider(
+        "Rent Spread",
+        min_value=0.0,
+        max_value=100.0,
+        value=st.session_state.spread_percent,
+        step=1.0,
+        help="0% = Everyone pays the same | 100% = Rent proportional to room value"
+    )
+    
+    # Check if current selection is feasible
+    if active_constraints:
+        is_feasible, violations = house.is_spread_feasible(spread_percent)
+        
+        if not is_feasible:
+            st.warning(f"⚠️ **Current selection ({spread_percent:.0f}%) violates constraints:**")
+            for violation in violations:
+                st.markdown(f"• {violation}")
+            
+            # Suggest nearest feasible value
+            if feasible_spreads:
+                nearest_feasible = min(feasible_spreads, key=lambda x: abs(x - spread_percent))
+                st.info(f"💡 Nearest feasible option: {nearest_feasible:.0f}%")
+                
+                if st.button(f"Jump to {nearest_feasible:.0f}%", type="secondary"):
+                    st.session_state.spread_percent = nearest_feasible
+                    st.rerun()
+        else:
+            st.success(f"✅ Current selection ({spread_percent:.0f}%) satisfies all constraints")
+    
+    return spread_percent
+
 def get_spread_description(spread_percent: float, house: House) -> str:
     """Get user-friendly description of the current spread setting."""
     if spread_percent <= 5:
@@ -166,6 +322,14 @@ def render_sidebar() -> House:
         step=0.1,
         help="Size of the shared living space (Room 2)"
     )
+    
+    st.sidebar.markdown("---")
+    
+    # Room constraints section
+    st.sidebar.subheader("⚖️ Rent Constraints")
+    st.sidebar.markdown("*Set acceptable rent ranges for negotiation:*")
+    
+    constraints_changed = render_constraint_panel(st.session_state.house)
     
     st.sidebar.markdown("---")
     
@@ -239,7 +403,7 @@ def render_sidebar() -> House:
     if not auto_update:
         should_update = st.sidebar.button("📊 Update House Settings", type="primary")
     
-    if should_update:
+    if constraints_changed or should_update:
         # Check if any settings actually changed
         settings_changed = False
         
@@ -322,17 +486,10 @@ def render_room_cards(house: House, result: OptimizationResult):
 def render_calculate_rent_tab(house: House):
     """Render the Calculate Rent tab with slider and results."""
     
-    # Spread slider
+    # Feasible slider with constraint awareness
     st.subheader("🎛️ How much should room differences matter?")
     
-    spread_percent = st.slider(
-        "Rent Spread",
-        min_value=0.0,
-        max_value=100.0,
-        value=st.session_state.spread_percent,
-        step=1.0,
-        help="0% = Everyone pays the same | 100% = Rent proportional to room value"
-    )
+    spread_percent = render_feasible_slider(house)
     
     # Update session state
     st.session_state.spread_percent = spread_percent
@@ -457,9 +614,30 @@ def render_compare_methods_tab(house: House):
     """Render the Compare Methods tab with custom range builder."""
     st.subheader("🔍 Compare Different Methods")
     
-    # Show practical range information
+    # Show practical range and constraint information
     practical_lambda = house.get_practical_lambda_range()
     st.info(f"📊 **Your house's practical spread range:** 0% to 100% (λ: 0 to {practical_lambda:.2f})")
+    
+    # Show constraint information if any are active
+    active_constraints = house.get_active_constraints()
+    if active_constraints:
+        constraint_summary = house.get_constraint_summary()
+        
+        if constraint_summary['has_feasible_solution']:
+            min_feasible = constraint_summary['feasible_range']['min_spread']
+            max_feasible = constraint_summary['feasible_range']['max_spread']
+            freedom = constraint_summary['constraint_impact']['freedom_retained']
+            
+            st.warning(f"⚖️ **Constraints active:** Only {min_feasible:.0f}% - {max_feasible:.0f}% spread is feasible ({freedom:.0f}% of options remain)")
+        else:
+            st.error("❌ **No feasible solution** with current constraints. Adjust constraints in the sidebar.")
+            
+            # Show conflicts
+            conflicts = house.find_constraint_conflicts()
+            for conflict in conflicts:
+                st.error(f"⚠️ {conflict['description']}")
+            
+            st.stop()  # Don't show comparison tools if no feasible solution
     
     # Initialize comparison
     comparison = OptimizationComparison(house)
@@ -478,6 +656,13 @@ def render_compare_methods_tab(house: House):
             for i, (criteria, recommendation) in enumerate(recommendations.items()):
                 with cols[i]:
                     st.metric(criteria, recommendation)
+                    
+                    # Check if recommendation is feasible
+                    if active_constraints:
+                        rec_percent = float(recommendation.replace('%', ''))
+                        is_feasible, _ = house.is_spread_feasible(rec_percent)
+                        if not is_feasible:
+                            st.caption("⚠️ Not feasible with current constraints")
     except Exception as e:
         st.info("Run comparisons above to see recommendations")
 
@@ -558,6 +743,10 @@ def render_export_modal():
             practical_lambda = house.get_practical_lambda_range()
             current_lambda = house.spread_to_lambda_for_house(spread_percent)
             
+            # Add constraint information
+            constraint_summary = house.get_constraint_summary()
+            active_constraints = house.get_active_constraints()
+            
             summary_text = f"""# Rent Allocation Summary
 
 **House Details:**
@@ -566,6 +755,24 @@ def render_export_modal():
 - Shared Room: {house.shared_room.size:.1f} sqm
 - Method: {get_spread_description(spread_percent, house)}
 - Spread: {spread_percent:.1f}% (λ={current_lambda:.2f}, max λ={practical_lambda:.2f})
+
+**Constraints:**
+- Active Constraints: {len(active_constraints)}"""
+            
+            if active_constraints:
+                summary_text += f"""
+- Feasible Range: {constraint_summary['feasible_range']['min_spread']:.0f}% - {constraint_summary['feasible_range']['max_spread']:.0f}%"""
+                
+                for constraint in active_constraints:
+                    min_str = f"£{constraint.min_acceptable:.0f}" if constraint.min_acceptable else "No min"
+                    max_str = f"£{constraint.max_acceptable:.0f}" if constraint.max_acceptable else "No max"
+                    summary_text += f"""
+- {constraint.room_id}: {min_str} - {max_str}"""
+            else:
+                summary_text += """
+- No constraints active (full 0-100% range available)"""
+            
+            summary_text += f"""
 
 **Key Metrics:**
 - Range: £{result.fairness_metrics['Range_Max_Min']:.0f}
@@ -578,7 +785,7 @@ def render_export_modal():
                 total_cost = result.allocation[room.room_id]
                 summary_text += f"- {room.room_id} ({room.size:.1f}m²): £{total_cost:.0f}/month\n"
             
-            st.text_area("Summary", summary_text, height=300)
+            st.text_area("Summary", summary_text, height=400)
         
         with col2:
             st.subheader("📁 Download Options")

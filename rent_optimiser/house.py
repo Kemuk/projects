@@ -5,6 +5,66 @@ import json
 
 
 @dataclass
+class RoomConstraint:
+    """Constraint on acceptable rent range for a specific room."""
+    room_id: str
+    min_acceptable: Optional[float] = None  # Minimum acceptable monthly rent
+    max_acceptable: Optional[float] = None  # Maximum acceptable monthly rent
+    is_active: bool = False  # Whether this constraint is currently enforced
+    
+    def __post_init__(self):
+        """Validate constraint after initialization."""
+        if self.min_acceptable is not None and self.max_acceptable is not None:
+            if self.min_acceptable > self.max_acceptable:
+                raise ValueError(f"Min acceptable ({self.min_acceptable}) cannot be greater than max acceptable ({self.max_acceptable})")
+    
+    def is_satisfied_by(self, rent_amount: float) -> bool:
+        """Check if a rent amount satisfies this constraint."""
+        if not self.is_active:
+            return True
+        
+        if self.min_acceptable is not None and rent_amount < self.min_acceptable:
+            return False
+        
+        if self.max_acceptable is not None and rent_amount > self.max_acceptable:
+            return False
+        
+        return True
+    
+    def get_violation_description(self, rent_amount: float) -> Optional[str]:
+        """Get description of constraint violation, if any."""
+        if not self.is_active or self.is_satisfied_by(rent_amount):
+            return None
+        
+        if self.min_acceptable is not None and rent_amount < self.min_acceptable:
+            return f"£{rent_amount:.0f} is below minimum acceptable (£{self.min_acceptable:.0f})"
+        
+        if self.max_acceptable is not None and rent_amount > self.max_acceptable:
+            return f"£{rent_amount:.0f} is above maximum acceptable (£{self.max_acceptable:.0f})"
+        
+        return "Unknown constraint violation"
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for serialization."""
+        return {
+            'room_id': self.room_id,
+            'min_acceptable': self.min_acceptable,
+            'max_acceptable': self.max_acceptable,
+            'is_active': self.is_active
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'RoomConstraint':
+        """Create from dictionary."""
+        return cls(
+            room_id=data['room_id'],
+            min_acceptable=data.get('min_acceptable'),
+            max_acceptable=data.get('max_acceptable'),
+            is_active=data.get('is_active', False)
+        )
+
+
+@dataclass
 class DesirabilityFactors:
     """Simplified desirability factors for quadratic optimization."""
     size_score: float = 3.0      # 1-5 scale (manually set)
@@ -171,6 +231,11 @@ class House:
         self.total_area = self._calculate_total_area()
         self.target_mean = total_rent / self.num_people
         
+        # Initialize room constraints
+        self.room_constraints: Dict[str, RoomConstraint] = {}
+        for room in individual_rooms:
+            self.room_constraints[room.room_id] = RoomConstraint(room_id=room.room_id)
+        
         # Calculate costs
         if shared_room:
             self._calculate_shared_costs()
@@ -303,6 +368,180 @@ class House:
             if room.room_id == room_id:
                 return room
         return None
+    
+    def add_room_constraint(self, room_id: str, min_acceptable: Optional[float] = None, 
+                           max_acceptable: Optional[float] = None, is_active: bool = True) -> bool:
+        """
+        Add or update a constraint for a specific room.
+        
+        Args:
+            room_id: ID of the room to constrain
+            min_acceptable: Minimum acceptable monthly rent (optional)
+            max_acceptable: Maximum acceptable monthly rent (optional)
+            is_active: Whether to activate this constraint
+            
+        Returns:
+            True if constraint was added/updated successfully
+        """
+        if room_id not in [room.room_id for room in self.individual_rooms]:
+            return False
+        
+        try:
+            constraint = RoomConstraint(
+                room_id=room_id,
+                min_acceptable=min_acceptable,
+                max_acceptable=max_acceptable,
+                is_active=is_active
+            )
+            self.room_constraints[room_id] = constraint
+            return True
+        except ValueError:
+            return False
+    
+    def remove_room_constraint(self, room_id: str) -> bool:
+        """Remove constraint for a specific room."""
+        if room_id in self.room_constraints:
+            self.room_constraints[room_id].is_active = False
+            return True
+        return False
+    
+    def get_active_constraints(self) -> List[RoomConstraint]:
+        """Get all currently active constraints."""
+        return [constraint for constraint in self.room_constraints.values() if constraint.is_active]
+    
+    def is_spread_feasible(self, spread_percent: float) -> Tuple[bool, List[str]]:
+        """
+        Check if a spread percentage satisfies all active constraints.
+        
+        Args:
+            spread_percent: Spread percentage to test (0-100)
+            
+        Returns:
+            Tuple of (is_feasible, list_of_violation_descriptions)
+        """
+        # Get allocation for this spread percentage
+        from optimizers.quadratic_optimizer import QuadraticOptimizer
+        
+        optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent, self)
+        allocation = optimizer.optimize(self)
+        
+        violations = []
+        
+        # Check each active constraint
+        for constraint in self.get_active_constraints():
+            if constraint.room_id in allocation:
+                rent_amount = allocation[constraint.room_id]
+                if not constraint.is_satisfied_by(rent_amount):
+                    violation_desc = constraint.get_violation_description(rent_amount)
+                    if violation_desc:
+                        violations.append(f"{constraint.room_id}: {violation_desc}")
+        
+        return len(violations) == 0, violations
+    
+    def get_feasible_spread_range(self, step_size: float = 1.0) -> Tuple[Optional[float], Optional[float], List[float]]:
+        """
+        Find the range of spread percentages that satisfy all active constraints.
+        
+        Args:
+            step_size: Step size for testing spread percentages (default: 1.0%)
+            
+        Returns:
+            Tuple of (min_feasible, max_feasible, all_feasible_spreads)
+            Returns (None, None, []) if no feasible solution exists
+        """
+        # If no active constraints, entire range is feasible
+        if not self.get_active_constraints():
+            return 0.0, 100.0, list(range(0, 101, int(step_size)))
+        
+        feasible_spreads = []
+        
+        # Test spread percentages from 0 to 100
+        test_spreads = [i * step_size for i in range(int(100 / step_size) + 1)]
+        
+        for spread_percent in test_spreads:
+            is_feasible, _ = self.is_spread_feasible(spread_percent)
+            if is_feasible:
+                feasible_spreads.append(spread_percent)
+        
+        if not feasible_spreads:
+            return None, None, []
+        
+        return min(feasible_spreads), max(feasible_spreads), feasible_spreads
+    
+    def get_constraint_summary(self) -> Dict[str, any]:
+        """
+        Get summary of all constraints and feasibility analysis.
+        
+        Returns:
+            Dictionary with constraint analysis summary
+        """
+        active_constraints = self.get_active_constraints()
+        min_feasible, max_feasible, feasible_spreads = self.get_feasible_spread_range()
+        
+        summary = {
+            'total_constraints': len(self.room_constraints),
+            'active_constraints': len(active_constraints),
+            'constraint_details': [constraint.to_dict() for constraint in active_constraints],
+            'feasible_range': {
+                'min_spread': min_feasible,
+                'max_spread': max_feasible,
+                'total_feasible_spreads': len(feasible_spreads),
+                'feasible_percentage': len(feasible_spreads) if feasible_spreads else 0
+            },
+            'has_feasible_solution': min_feasible is not None
+        }
+        
+        # Add constraint impact analysis
+        if min_feasible is not None and max_feasible is not None:
+            constrained_range = max_feasible - min_feasible
+            unconstrained_range = 100.0
+            summary['constraint_impact'] = {
+                'remaining_range_percent': constrained_range,
+                'eliminated_range_percent': unconstrained_range - constrained_range,
+                'freedom_retained': (constrained_range / unconstrained_range) * 100
+            }
+        
+        return summary
+    
+    def find_constraint_conflicts(self) -> List[Dict]:
+        """
+        Identify constraint conflicts that make no solution possible.
+        
+        Returns:
+            List of conflict descriptions
+        """
+        conflicts = []
+        
+        # Check if any constraints are individually impossible
+        for constraint in self.get_active_constraints():
+            if constraint.min_acceptable is not None and constraint.max_acceptable is not None:
+                if constraint.min_acceptable > constraint.max_acceptable:
+                    conflicts.append({
+                        'type': 'invalid_range',
+                        'room_id': constraint.room_id,
+                        'description': f"{constraint.room_id} has impossible range: £{constraint.min_acceptable:.0f} - £{constraint.max_acceptable:.0f}"
+                    })
+        
+        # Check if constraints are mathematically impossible given house total rent
+        total_min_required = sum(
+            constraint.min_acceptable or 0 
+            for constraint in self.get_active_constraints() 
+            if constraint.min_acceptable is not None
+        )
+        
+        total_max_allowed = sum(
+            constraint.max_acceptable or self.total_rent 
+            for constraint in self.get_active_constraints() 
+            if constraint.max_acceptable is not None
+        )
+        
+        if total_min_required > self.total_rent:
+            conflicts.append({
+                'type': 'exceeds_total_rent',
+                'description': f"Minimum required rents (£{total_min_required:.0f}) exceed total rent (£{self.total_rent:.0f})"
+            })
+        
+        return conflicts
     
     def get_practical_lambda_range(self, threshold: float = 1.0, max_lambda: float = 20.0) -> float:
         """
@@ -460,7 +699,8 @@ class House:
         return {
             'total_rent': self.total_rent,
             'individual_rooms': [room.to_dict() for room in self.individual_rooms],
-            'shared_room': self.shared_room.to_dict() if self.shared_room else None
+            'shared_room': self.shared_room.to_dict() if self.shared_room else None,
+            'room_constraints': {room_id: constraint.to_dict() for room_id, constraint in self.room_constraints.items()}
         }
     
     @classmethod
@@ -472,7 +712,15 @@ class House:
         if data.get('shared_room'):
             shared_room = Room.from_dict(data['shared_room'])
         
-        return cls(individual_rooms, shared_room, data['total_rent'])
+        house = cls(individual_rooms, shared_room, data['total_rent'])
+        
+        # Restore room constraints if present
+        if 'room_constraints' in data:
+            for room_id, constraint_data in data['room_constraints'].items():
+                constraint = RoomConstraint.from_dict(constraint_data)
+                house.room_constraints[room_id] = constraint
+        
+        return house
     
     @classmethod
     def create_your_house(cls) -> 'House':
