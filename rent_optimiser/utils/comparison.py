@@ -10,7 +10,23 @@ import io
 import json
 from optimizers.quadratic_optimizer import QuadraticOptimizer
 from optimizers.base_optimizer import OptimizationResult
+from dataclasses import asdict
 
+def show_object(obj, label="Object Details"):
+    # 1. Build a dict of non-private, non-method attributes
+    attrs = {
+        name: getattr(obj, name)
+        for name in dir(obj)
+        if not name.startswith("_")
+        and not callable(getattr(obj, name))
+    }
+
+    # 2. Render as a table
+    import pandas as pd
+    df = pd.DataFrame.from_dict(attrs, orient="index", columns=["Value"])
+
+    st.subheader(label)
+    st.table(df)
 
 class OptimizationComparison:
     """
@@ -22,75 +38,54 @@ class OptimizationComparison:
     
     def __init__(self, house):
         """Initialize with a house object."""
-        self.house = house
+        self.house = st.session_state.house
         self.results = []
         self.comparison_df = None
         self.fairness_df = None
         self.current_charts = {}
         self.custom_range_data = None
-    
-    def run_lambda_comparison(self, lambda_values: List[float] = None) -> Dict:
-        """
-        Run comparison across different lambda values.
-        
-        Args:
-            lambda_values: List of lambda values to test
             
-        Returns:
-            Dictionary with comparison results
-        """
-        if lambda_values is None:
-            lambda_values = [0.0, 1.0, 2.0, 5.0, 7.0, 10.0]
-        
-        self.results = []
-        
-        # Run optimization for each lambda
-        for lambda_val in lambda_values:
-            optimizer = QuadraticOptimizer(lambda_val)
-            result = optimizer.get_optimization_result(self.house)
-            self.results.append(result)
-        
-        # Create comparison dataframes
-        self._create_comparison_dataframes()
-        
-        return {
-            'detailed_results': self.comparison_df,
-            'fairness_metrics': self.fairness_df,
-            'lambda_values': lambda_values
-        }
-    
     def run_custom_range_comparison(self, spread_percentages: List[float]) -> pd.DataFrame:
         """
-        Run comparison for user-selected spread percentages.
-        
+        Run comparison for user-selected spread percentages, retrieving per-room metrics
+        in the same style as get_room_cards_data (but without calling it).
+
         Args:
             spread_percentages: List of spread percentages (0-100)
-            
+
         Returns:
             DataFrame with comparison data
         """
         comparison_data = []
-        
+
         for spread_percent in spread_percentages:
+            # compute allocation for this spread
             optimizer = QuadraticOptimizer.from_spread_percentage(spread_percent, self.house)
             result = optimizer.get_optimization_result(self.house)
-            
+            allocation = result.allocation
+
+            # for each room, compute the same fields get_room_cards_data would
             for room in self.house.individual_rooms:
-                cost = result.allocation[room.room_id]
+                total_cost = allocation.get(room.room_id, 0)
+                deviation = total_cost - self.house.target_mean
+                cost_per_sqm = total_cost / room.size if room.size else 0.0
+
                 comparison_data.append({
+                    'Room': room.room_id,
                     'Spread': f"{spread_percent:.0f}%",
                     'Spread_Value': spread_percent,
                     'Lambda': self.house.spread_to_lambda_for_house(spread_percent),
-                    'Room': room.room_id,
-                    'Cost': cost,
+                    'Cost': total_cost,
                     'Size': room.size,
                     'Desirability': room.desirability_score,
-                    'Cost_per_sqm': cost / room.size,
-                    'Deviation_from_Mean': cost - self.house.target_mean
+                    'Cost_per_sqm': cost_per_sqm,
+                    'Deviation_from_Mean': deviation
                 })
-        
+
         self.custom_range_data = pd.DataFrame(comparison_data)
         return self.custom_range_data
+
+
     
     def get_trajectory_data(self, num_points: int = 20) -> pd.DataFrame:
         """
@@ -272,40 +267,6 @@ class OptimizationComparison:
         
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    def get_spread_recommendations(self) -> Dict[str, str]:
-        """Get recommendations based on spread percentage analysis."""
-        if self.custom_range_data is None:
-            # Generate trajectory data for analysis
-            self.get_trajectory_data(num_points=21)
-        
-        recommendations = {}
-        
-        # Calculate metrics for each spread percentage
-        spread_metrics = []
-        for spread_percent in self.custom_range_data['Spread_Value'].unique():
-            spread_data = self.custom_range_data[self.custom_range_data['Spread_Value'] == spread_percent]
-            costs = spread_data['Cost'].values
-            
-            spread_metrics.append({
-                'spread': spread_percent,
-                'range': max(costs) - min(costs),
-                'std_dev': np.std(costs),
-                'gini': self._calculate_gini(costs)
-            })
-        
-        metrics_df = pd.DataFrame(spread_metrics)
-        
-        # Find best options
-        best_equality = metrics_df.loc[metrics_df['gini'].idxmin(), 'spread']
-        best_range = metrics_df.loc[metrics_df['range'].idxmin(), 'spread']
-        best_stability = metrics_df.loc[metrics_df['std_dev'].idxmin(), 'spread']
-        
-        recommendations['Most Equal Distribution'] = f"{best_equality:.0f}%"
-        recommendations['Smallest Cost Range'] = f"{best_range:.0f}%"
-        recommendations['Most Stable Costs'] = f"{best_stability:.0f}%"
-        
-        return recommendations
     
     def _calculate_gini(self, values: List[float]) -> float:
         """Calculate Gini coefficient for a list of values."""
@@ -783,26 +744,3 @@ Analysis completed: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
         
         return summary
-    
-    def get_recommendations(self) -> Dict[str, str]:
-        """Get recommendations based on fairness metrics."""
-        if self.fairness_df is None:
-            return {}
-        
-        recommendations = {}
-        
-        # Find best lambda for different criteria
-        best_gini_idx = self.fairness_df['Gini_Coefficient'].idxmin()
-        best_range_idx = self.fairness_df['Range_Max_Min'].idxmin()
-        best_std_idx = self.fairness_df['Standard_Deviation'].idxmin()
-        
-        # Convert to spread percentages
-        best_gini_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_gini_idx, 'Lambda'])
-        best_range_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_range_idx, 'Lambda'])
-        best_std_spread = self.house.lambda_to_spread_for_house(self.fairness_df.loc[best_std_idx, 'Lambda'])
-        
-        recommendations['Most Equal (Gini)'] = f"{best_gini_spread:.0f}%"
-        recommendations['Smallest Range'] = f"{best_range_spread:.0f}%"
-        recommendations['Most Stable'] = f"{best_std_spread:.0f}%"
-        
-        return recommendations

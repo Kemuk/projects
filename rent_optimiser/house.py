@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import json
 
 
@@ -782,7 +782,18 @@ class House:
         # Create shared room
         shared_room = Room('Room 2', 15.19, is_shared=True)
         
-        return cls (individual_rooms, shared_room, 4110.0)
+        house = cls(individual_rooms, shared_room, 4110.0)
+    
+        # Add default constraints
+        for room in individual_rooms:
+            house.add_room_constraint(
+                room_id=room.room_id,
+                min_acceptable=600.0,
+                max_acceptable=900.0,
+                is_active=True
+            )
+        
+        return house
     
     def get_proportional_allocation(self) -> Dict[str, float]:
         """

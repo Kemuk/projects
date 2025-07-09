@@ -12,12 +12,13 @@ from typing import Dict, List, Optional
 import json
 import zipfile
 import io
+from dataclasses import asdict
 
 # Import your classes
 from house import House, Room, DesirabilityFactors
 from optimizers.quadratic_optimizer import QuadraticOptimizer
 from optimizers.base_optimizer import OptimizationResult
-from utils.comparison import OptimizationComparison
+from utils.comparison import OptimizationComparison, show_object
 
 # Page configuration
 st.set_page_config(
@@ -83,7 +84,7 @@ def initialize_session_state():
             st.error(f"Error creating house: {e}")
             st.session_state.house = create_fallback_house()
     if 'spread_percent' not in st.session_state:
-        st.session_state.spread_percent = 50.0
+        st.session_state.spread_percent = 100.0
     if 'optimization_results' not in st.session_state:
         st.session_state.optimization_results = []
 
@@ -123,18 +124,19 @@ def render_clean_slider(house: House) -> float:
     Returns:
         Selected spread percentage (actual, not slider position)
     """
+
     # Convert current actual spread to slider position
     current_actual = st.session_state.spread_percent
     current_slider = house.actual_spread_to_slider(current_actual)
     
     # Clean slider (always 0-100%)
-    slider_percent = st.slider(
+    slider_percent = st.sidebar.slider(
         "Rent Spread",
         min_value=0.0,
         max_value=100.0,
         value=current_slider,
         step=1.0,
-        help="0% = Everyone pays the same | 100% = Maximum difference possible"
+        help="0 = Everyone pays the same | 100 = The \"best\" room pays the most"
     )
     
     # Convert slider position to actual spread
@@ -247,67 +249,6 @@ def render_constraint_panel(house: House) -> bool:
     
     return constraints_changed
 
-def render_feasible_slider(house: House) -> float:
-    """
-    Render slider with feasible zones highlighted.
-    
-    Returns:
-        Selected spread percentage
-    """
-    # Get feasibility analysis
-    min_feasible, max_feasible, feasible_spreads = house.get_feasible_spread_range()
-    active_constraints = house.get_active_constraints()
-    
-    # Display feasibility status
-    if active_constraints:
-        if min_feasible is not None and max_feasible is not None:
-            st.success(f"✅ **Feasible range: {min_feasible:.0f}% - {max_feasible:.0f}%** (with current constraints)")
-        else:
-            st.error("❌ **No feasible solution** with current constraints")
-            st.markdown("*Adjust constraints or remove them to find solutions*")
-    
-    # Regular slider (we'll add visual enhancement later)
-    spread_percent = st.slider(
-        "Rent Spread",
-        min_value=0.0,
-        max_value=100.0,
-        value=st.session_state.spread_percent,
-        step=1.0,
-        help="0% = Everyone pays the same | 100% = Rent proportional to room value"
-    )
-    
-    # Check if current selection is feasible
-    if active_constraints:
-        is_feasible, violations = house.is_spread_feasible(spread_percent)
-        
-        if not is_feasible:
-            st.warning(f"⚠️ **Current selection ({spread_percent:.0f}%) violates constraints:**")
-            for violation in violations:
-                st.markdown(f"• {violation}")
-            
-            # Suggest nearest feasible value
-            if feasible_spreads:
-                nearest_feasible = min(feasible_spreads, key=lambda x: abs(x - spread_percent))
-                st.info(f"💡 Nearest feasible option: {nearest_feasible:.0f}%")
-                
-                if st.button(f"Jump to {nearest_feasible:.0f}%", type="secondary"):
-                    st.session_state.spread_percent = nearest_feasible
-                    st.rerun()
-        else:
-            st.success(f"✅ Current selection ({spread_percent:.0f}%) satisfies all constraints")
-    
-    return spread_percent
-
-
-def get_spread_description(spread_percent: float, house: House) -> str:
-    """Get user-friendly description of the current spread setting."""
-    if spread_percent <= 5:
-        return "🟰 Everyone pays the same amount"
-    elif spread_percent >= 95:
-        return "📏 Rent based purely on room value"
-    else:
-        return f"⚖️ {spread_percent:.0f}% consideration for room differences"
-
 def render_sidebar() -> House:
     """Render the simplified sidebar with house configuration only."""
     # Validate house object first
@@ -320,6 +261,7 @@ def render_sidebar() -> House:
     
     # House configuration
     st.sidebar.header("🏠 House Configuration")
+
     
     # Quick load defaults
     if st.sidebar.button("📋 Load Default House Data", type="secondary", help="Load your house with default settings"):
@@ -474,6 +416,16 @@ def render_sidebar() -> House:
             if not auto_update:
                 st.sidebar.success("✅ Settings updated!")
                 st.rerun()
+
+    st.sidebar.subheader("⚖️ Configure Individual Rooms")
+
+    spread_percent = render_clean_slider(st.session_state.house)
+
+    st.sidebar.markdown("---")
+    
+
+    # Retrieve session state = 
+    st.session_state.spread_percent = spread_percent
     
     return st.session_state.house
 
@@ -490,6 +442,7 @@ def run_optimization(house: House, spread_percent: float) -> OptimizationResult:
 def render_room_cards(house: House, result: OptimizationResult):
     """Render room cards with color coding."""
     st.subheader("💰 Monthly Rent for Each Room")
+
     
     # Get room cards data
     optimizer = QuadraticOptimizer.from_spread_percentage(st.session_state.spread_percent, house)
@@ -512,54 +465,9 @@ def render_room_cards(house: House, result: OptimizationResult):
 
 def render_calculate_rent_tab(house: House):
     """Render the Calculate Rent tab with slider and results."""
-    
-    # Feasible slider with constraint awareness
-    st.subheader("🎛️ How much should room differences matter?")
-    
-    spread_percent = render_clean_slider(house)
-    
-    # Update session state
-    st.session_state.spread_percent = spread_percent
-    
-    # Show current method description
-    description = get_spread_description(spread_percent, house)
-    st.markdown(f'<div class="method-description">{description}</div>', unsafe_allow_html=True)
-    
-    # Show practical lambda range info
-    practical_lambda = house.get_practical_lambda_range()
-    current_lambda = house.spread_to_lambda_for_house(spread_percent)
-    
-    with st.expander("ℹ️ Technical Details", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Current λ", f"{current_lambda:.2f}")
-        with col2:
-            st.metric("Max Effective λ", f"{practical_lambda:.2f}")
-        with col3:
-            efficiency = (current_lambda / practical_lambda) * 100 if practical_lambda > 0 else 0
-            st.metric("Range Efficiency", f"{efficiency:.0f}%")
-        
-        st.caption(f"This house's practical lambda range is 0 to {practical_lambda:.2f}. "
-                   f"Beyond {practical_lambda:.2f}, changes in rent allocation become negligible (< £1 per room).")
-    
-    # Quick preset buttons
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Equal Split", help="Everyone pays the same"):
-            st.session_state.spread_percent = 0.0
-            st.rerun()
-    
-    with col2:
-        if st.button("Balanced", help="Consider room differences moderately"):
-            st.session_state.spread_percent = 50.0
-            st.rerun()
-    
-    with col3:
-        if st.button("Proportional", help="Rent based on room value"):
-            st.session_state.spread_percent = 100.0
-            st.rerun()
-    
-    st.markdown("---")
+ 
+    # Retrieve session state = 
+    spread_percent = st.session_state.spread_percent
     
     # Run optimization
     result = run_optimization(house, spread_percent)
@@ -636,6 +544,26 @@ def render_calculate_rent_tab(house: House):
     
     else:
         st.error("Unable to calculate results. Please check your settings.")
+    
+    # Show practical lambda range info
+    practical_lambda = house.get_practical_lambda_range()
+    current_lambda = house.spread_to_lambda_for_house(spread_percent)
+    
+    with st.expander("ℹ️ Technical Details", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current λ", f"{current_lambda:.2f}")
+        with col2:
+            st.metric("Max Effective λ", f"{practical_lambda:.2f}")
+        with col3:
+            efficiency = (current_lambda / practical_lambda) * 100 if practical_lambda > 0 else 0
+            st.metric("Range Efficiency", f"{efficiency:.0f}%")
+        
+        st.caption(f"This house's practical lambda range is 0 to {practical_lambda:.2f}. "
+                   f"Beyond {practical_lambda:.2f}, changes in rent allocation become negligible (< £1 per room).")
+    
+
+    st.markdown("---")
 
 def render_compare_methods_tab(house: House):
     """Render the Compare Methods tab with custom range builder."""
@@ -674,24 +602,6 @@ def render_compare_methods_tab(house: House):
     
     # Recommendations
     st.markdown("---")
-    st.subheader("💡 Recommendations")
-    
-    try:
-        recommendations = comparison.get_spread_recommendations()
-        if recommendations:
-            cols = st.columns(len(recommendations))
-            for i, (criteria, recommendation) in enumerate(recommendations.items()):
-                with cols[i]:
-                    st.metric(criteria, recommendation)
-                    
-                    # Check if recommendation is feasible
-                    if active_constraints:
-                        rec_percent = float(recommendation.replace('%', ''))
-                        is_feasible, _ = house.is_spread_feasible(rec_percent)
-                        if not is_feasible:
-                            st.caption("⚠️ Not feasible with current constraints")
-    except Exception as e:
-        st.info("Run comparisons above to see recommendations")
 
 def render_room_details_tab(house: House):
     """Render the Room Details tab."""
@@ -780,7 +690,6 @@ def render_export_modal():
 - Total Rent: £{house.total_rent:,.0f}
 - Number of People: {house.num_people}
 - Shared Room: {house.shared_room.size:.1f} sqm
-- Method: {get_spread_description(spread_percent, house)}
 - Spread: {spread_percent:.1f}% (λ={current_lambda:.2f}, max λ={practical_lambda:.2f})
 
 **Constraints:**
@@ -853,7 +762,7 @@ def main():
     initialize_session_state()
     
     # Header
-    col_title, col_export = st.columns([4, 1])
+    col_title, col_export = st.columns([3, 1])
     
     with col_title:
         st.markdown('<p class="main-header">🏠 Fair Rent Calculator</p>', unsafe_allow_html=True)
@@ -873,15 +782,12 @@ def main():
         st.stop()
     
     # Main content tabs
-    tab1, tab2, tab3 = st.tabs(["💰 Calculate Rent", "🔍 Compare Methods", "🏠 Room Details"])
-    
+    tab1, tab2, tab3 = st.tabs(["💰 Overall Summary", "🏠 Room Breakdown", "🔍Methodology"])
+ 
     with tab1:
         render_calculate_rent_tab(house)
     
     with tab2:
-        render_compare_methods_tab(house)
-    
-    with tab3:
         render_room_details_tab(house)
 
 if __name__ == "__main__":
